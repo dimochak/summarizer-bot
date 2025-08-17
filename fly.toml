@@ -1,0 +1,22 @@
+# fly.toml app configuration file generated for xxl-bot-summarizer on 2025-08-17T15:16:16+03:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'xxl-bot-summarizer'
+primary_region = 'waw'
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
