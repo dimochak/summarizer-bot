@@ -10,4 +10,5 @@ dependencies = [
     "python-dotenv==1.*",
     "python-telegram-bot==21.*",
     "pytz==2024.*",
+    "telethon==1.*",
 ]
