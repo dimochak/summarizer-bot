@@ -1,0 +1,13 @@
+[project]
+name = "xxl-bot-summarizer"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "apscheduler==3.*",
+    "google-generativeai==0.*",
+    "orjson==3.*",
+    "python-dotenv==1.*",
+    "python-telegram-bot==21.*",
+    "pytz==2024.*",
+]
