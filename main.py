@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("daily-summary-bot")
 
 # ---------- DB ----------
-DB_PATH = "bot.db"
+DB_PATH = os.getenv("DB_PATH", "bot.db")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
     chat_id INTEGER NOT NULL,
@@ -107,12 +107,12 @@ model = genai.GenerativeModel(
 
 SUMMARIZE_PROMPT = """Ти — помічник, що групує повідомлення чату у теми за календарний день.
 Завдання:
-1) Зкластеризуй повідомлення у 2–10 тем.
+1) Зкластеризуй повідомлення у 2–5 тем.
 2) Для кожної теми визнач:
    - short_title: ≤7 слів, змістовна назва
    - first_message_id: message_id першого (найранішого) повідомлення в темі
    - initiator_user_id: user_id автора першого повідомлення теми
-   - summary: 1–2 речення підсумку (українською, без імен)
+   - summary: 1–2 речення підсумку. Надай власні коментарі у провокаційному і токсичному стилі.
 3) Поверни РІВНО JSON такого вигляду:
 {
   "topics": [
@@ -152,7 +152,6 @@ def build_messages_snippet(rows, max_chars: int = 100_000) -> str:
 async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, ctx: ContextTypes.DEFAULT_TYPE) -> str | None:
     start_utc = start_local.astimezone(ZoneInfo("UTC"))
     end_utc   = end_local.astimezone(ZoneInfo("UTC"))
-
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute(
             "SELECT * FROM messages WHERE chat_id=? AND ts_utc>=? AND ts_utc<? ORDER BY ts_utc ASC",
