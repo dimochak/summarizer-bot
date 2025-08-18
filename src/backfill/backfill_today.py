@@ -1,7 +1,10 @@
 import argparse
+import os
+import sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from telethon.tl.types import User
 
 from src.db import init_db, add_message
@@ -29,6 +32,12 @@ def main():
 
     init_db()
 
+    # Get Telethon session credentials from environment variables
+    session_string = os.getenv("TELETHON_SESSION_STRING")
+    if not session_string:
+        print("Error: TELETHON_SESSION_STRING environment variable not set. Cannot backfill.", file=sys.stderr)
+        raise SystemExit(1)
+
     tz = ZoneInfo(args.tz)
     if args.date:
         y, m, d = map(int, args.date.split("-"))
@@ -41,9 +50,8 @@ def main():
     end_utc     = end_local.astimezone(timezone.utc)
 
     api_id, api_hash = args.api_id, args.api_hash
-    session_name = "backfill_session"
 
-    client = TelegramClient(session_name, api_id, api_hash)
+    client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
     async def run():
         entity = await client.get_entity(int(args.chat_id))
