@@ -24,7 +24,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 TZ = os.getenv("TZ", "Europe/Kyiv")
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-flash")
+MODEL_NAME = os.getenv("MODEL_NAME", "gemini-2.5-flash")
 
 # OPTIONAL allowlist: "ALLOWED_CHAT_IDS" = "-1001,-1002"
 _allow_env = os.getenv("ALLOWED_CHAT_IDS") or os.getenv("ALLOWED_CHAT_ID")
