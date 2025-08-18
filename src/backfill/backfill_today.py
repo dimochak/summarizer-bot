@@ -1,35 +1,24 @@
-import os, sqlite3, argparse
-from contextlib import closing
+import argparse
+import sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from telethon import TelegramClient
 from telethon.tl.types import User
 
-DB_PATH = os.getenv("DB_PATH", "bot.db")
-
-SCHEMA_CHECK = "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
-
-def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def ensure_schema():
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
-        cur.execute(SCHEMA_CHECK)
-        if not cur.fetchone():
-            raise SystemExit("messages table not found. Run the bot once to create schema.")
+# Imports are now absolute from the `src` package root.
+from src.db import init_db, add_message
 
 def insert_row(r):
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
-        cur.execute(
-            """INSERT OR IGNORE INTO messages
-               (chat_id, message_id, user_id, username, full_name, text, reply_to_message_id, ts_utc)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (r["chat_id"], r["message_id"], r["user_id"], r["username"], r["full_name"],
-             r["text"], r["reply_to_message_id"], r["ts_utc"])
-        )
-        conn.commit()
+    add_message(
+        r["chat_id"],
+        r["message_id"],
+        r["user_id"],
+        r["username"],
+        r["full_name"],
+        r["text"],
+        r["reply_to_message_id"],
+        r["ts_utc"],
+    )
 
 def main():
     ap = argparse.ArgumentParser()
@@ -40,7 +29,7 @@ def main():
     ap.add_argument("--date", help="YYYY-MM-DD (default: today local)")
     args = ap.parse_args()
 
-    ensure_schema()
+    init_db()
 
     tz = ZoneInfo(args.tz)
     if args.date:
