@@ -1,11 +1,9 @@
 import argparse
-import sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from telethon import TelegramClient
 from telethon.tl.types import User
 
-# Imports are now absolute from the `src` package root.
 from src.db import init_db, add_message
 
 def insert_row(r):
@@ -49,7 +47,6 @@ def main():
 
     async def run():
         entity = await client.get_entity(int(args.chat_id))
-        # беремо повідомлення від початку дня до кінця (ASC)
         async for msg in client.iter_messages(entity, offset_date=start_utc, reverse=True):
             if msg.date is None:
                 continue
@@ -61,7 +58,7 @@ def main():
 
             text = (msg.message or "").strip()
             if not text:
-                continue  # ігноруємо нелітерні/порожні (стікери/сервісні тощо)
+                continue
 
             user_id = None
             username = None
