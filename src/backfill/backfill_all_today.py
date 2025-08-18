@@ -3,15 +3,12 @@ import sys
 import subprocess
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# This script is run as a module from the project root,
-# so we can import directly from `src`.
-from src.db import get_enabled_chat_ids, init_db
-from src.config import TZ
+from src.db import init_db
+from src.config import TZ, ALLOWED_CHAT_IDS
 
 def main():
     api_id = os.getenv("TELEGRAM_API_ID")
@@ -22,20 +19,19 @@ def main():
 
     init_db()
 
-    chat_ids = get_enabled_chat_ids()
+    chat_ids = ALLOWED_CHAT_IDS
     if not chat_ids:
-        print("No enabled chats to backfill. Skipping.")
+        print("No ALLOWED_CHAT_IDS set in environment. Skipping backfill.")
         return 0
 
     tz = ZoneInfo(TZ)
     today = datetime.now(tz=tz).date()
     date_str = today.strftime("%Y-%m-%d")
 
-    print(f"Backfilling {date_str} for {len(chat_ids)} enabled chats...")
+    print(f"Backfilling {date_str} for {len(chat_ids)} chats from ALLOWED_CHAT_IDS...")
     for cid in chat_ids:
         print(f"  - Chat {cid}: backfill today")
         try:
-            # Run the child script as a module to ensure its sys.path is correct.
             subprocess.run(
                 [
                     sys.executable,
