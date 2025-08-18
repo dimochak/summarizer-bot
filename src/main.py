@@ -157,8 +157,8 @@ def build_messages_snippet(rows, max_chars: int = 100_000) -> str:
         time = ts.strftime("%H:%M")
         name = r["full_name"] or (r["username"] and f"@{r['username']}") or f"id{r['user_id']}"
         frag = (r["text"] or "").replace("\n", " ").strip()
-        if len(frag) > 240:
-            frag = frag[:240] + "…"
+        if len(frag) > 500:
+            frag = frag[:500] + "…"
         reply = f", reply_to={r['reply_to_message_id']}" if r["reply_to_message_id"] else ""
         lines.append(f"[{time}] {name} (uid={r['user_id']}, mid={r['message_id']}{reply}): {frag}")
     s = "\n".join(lines)
