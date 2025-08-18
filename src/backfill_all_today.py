@@ -6,7 +6,9 @@ from contextlib import closing
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
+from dotenv import load_dotenv
 
+load_dotenv()
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 TZ = os.getenv("TZ", "Europe/Kyiv")
 
