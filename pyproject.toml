@@ -12,3 +12,9 @@ dependencies = [
     "pytz==2024.*",
     "telethon==1.*",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+]

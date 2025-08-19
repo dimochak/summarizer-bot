@@ -9,8 +9,8 @@ def utc_ts(dt: datetime) -> int:
 
 def local_midnight_bounds(day_local: datetime):
     day = day_local.astimezone(config.KYIV).date()
-    start_local = datetime.combine(day - timedelta(days=1), datetime.min.time(), tzinfo=config.KYIV)
-    end_local   = datetime.combine(day,               datetime.min.time(), tzinfo=config.KYIV)
+    start_local = datetime.combine(day,                     datetime.min.time(), tzinfo=config.KYIV)
+    end_local   = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=config.KYIV)
     return start_local, end_local
 
 def message_link(chat: Chat, message_id: int) -> str:
