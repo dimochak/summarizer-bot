@@ -26,7 +26,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if config.ALLOWED_CHAT_IDS and chat.id not in config.ALLOWED_CHAT_IDS:
         return
 
-    ensure_chat_record(chat, enable_default=0)
+    ensure_chat_record(chat)
 
     text = msg.text or msg.caption
     if text is None:
@@ -77,7 +77,7 @@ async def cmd_summary_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_enable_summaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    ensure_chat_record(chat, enable_default=1)
+    ensure_chat_record(chat)
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("UPDATE chats SET enabled=1 WHERE chat_id=?", (chat.id,))
         conn.commit()
@@ -85,7 +85,7 @@ async def cmd_enable_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def cmd_disable_summaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    ensure_chat_record(chat, enable_default=0)
+    ensure_chat_record(chat)
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("UPDATE chats SET enabled=0 WHERE chat_id=?", (chat.id,))
         conn.commit()

@@ -57,7 +57,7 @@ def add_message(chat_id, message_id, user_id, username, full_name, text, reply_t
         conn.commit()
 
 
-def ensure_chat_record(chat: Chat, *, enable_default: int = 0):
+def ensure_chat_record(chat: Chat, *, enable_default: int = 1):
     """Створюємо/оновлюємо запис про чат у таблиці chats."""
     title = chat.title or chat.username or str(chat.id)
     with closing(db()) as conn, closing(conn.cursor()) as cur:
