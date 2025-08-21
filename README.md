@@ -1,6 +1,6 @@
 # Telegram Summarizer Bot — Gemini + python-telegram-bot + Fly.io
 
-A daily summarizer bot for Telegram group chats. At **00:00 (Europe/Kyiv)** it posts **#Підсумки_дня** (Daily Summary): a list of topics discussed during the previous day with links to the **first message of each topic** and a link to the **initiator** (clickable user link or @username).
+A daily summarizer bot for Telegram group chats. At **23:59 (Europe/Kyiv)** it posts **#Підсумки_дня** (Daily Summary): a list of topics discussed during the previous day with links to the **first message of each topic** and a link to the **initiator** (clickable user link or @username).
 
 ---
 
