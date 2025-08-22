@@ -1,11 +1,10 @@
-import asyncio
 from datetime import datetime, timezone, time as dtime
 from contextlib import closing
 import random
 
 from telegram import Update, Chat, Message
 from telegram.constants import ParseMode
-from telegram.ext import ContextTypes, JobQueue
+from telegram.ext import ContextTypes
 
 import src.config as config
 from src.db import db, ensure_chat_record, add_message
@@ -18,6 +17,7 @@ INITIAL_PLACEHOLDERS = [
     "🤖 Запускаю аналіз вашого словесного потоку. Не заздрю собі.",
     "⏳ Зараз, зараз, дай переварити все це сміття, що ви називаєте розмовою.",
 ]
+
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg: Message = update.effective_message
@@ -47,21 +47,57 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         utc_ts(ts.astimezone(timezone.utc))
     )
 
+
 async def cmd_chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_html(f"<code>{update.effective_chat.id}</code>")
+
 
 async def cmd_summary_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if config.ALLOWED_CHAT_IDS and chat.id not in config.ALLOWED_CHAT_IDS:
         return
 
+    # Parse toxicity level from command arguments
+    toxicity_level = 9  # Default to maximum toxicity
+
+    if context.args:
+        try:
+            toxicity_level = int(context.args[0])
+            if not (0 <= toxicity_level <= 9):
+                await update.effective_message.reply_text(
+                    "❌ Рівень токсичності має бути від 0 (дружелюбний) до 9 (максимально токсичний)."
+                )
+                return
+        except ValueError:
+            await update.effective_message.reply_text(
+                "❌ Невірний формат. Використовуйте: /summary_now [0-9]\n"
+                "0 = дружелюбний стиль, 9 = максимально токсичний стиль."
+            )
+            return
+
+    # Choose appropriate placeholder based on toxicity level
+    if toxicity_level <= 2:
+        placeholder_messages = [
+            "⏳ Хвилинку, аналізую ваші повідомлення...",
+            "🤔 Зараз подивлюся, що цікавого було сьогодні в чаті.",
+            "📝 Готую підсумок дня для вас!",
+        ]
+    elif toxicity_level <= 5:
+        placeholder_messages = [
+            "⏳ Ну добре, зараз розберемося з вашими розмовами...",
+            "🧐 Спробую знайти щось осмислене у вашому чаті.",
+            "📊 Аналізую ваші словесні потоки...",
+        ]
+    else:
+        placeholder_messages = INITIAL_PLACEHOLDERS
+
     # Send a placeholder message first to acknowledge the command
-    placeholder_message = await update.effective_message.reply_html(random.choice(INITIAL_PLACEHOLDERS))
+    placeholder_message = await update.effective_message.reply_html(random.choice(placeholder_messages))
 
     # Perform the long-running summary generation
     now_local = datetime.now(tz=config.KYIV)
     start_local = datetime.combine(now_local.date(), dtime.min, tzinfo=config.KYIV)  # сьогодні від 00:00
-    text = await summarize_day(chat, start_local, now_local, context)
+    text = await summarize_day(chat, start_local, now_local, context, toxicity_level)
 
     # Prepare the final text
     if not text:

@@ -15,7 +15,8 @@ async def send_daily_summary_to_chat(app: Application, chat_id: int):
         return
     now_local = datetime.now(tz=config.KYIV)
     start_local, end_local = local_midnight_bounds(now_local)
-    text = await summarize_day(chat, start_local, end_local, None)
+    # Always use maximum toxicity level (9) for scheduled summaries
+    text = await summarize_day(chat, start_local, end_local, None, toxicity_level=9)
     if not text:
         text = f"<b>#Підсумки_дня — {start_local.date():%d.%m.%Y}</b>\n\nНемає повідомлень або не вдалося сформувати підсумок."
     await app.bot.send_message(chat_id=chat.id, text=text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
