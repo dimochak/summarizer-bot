@@ -153,9 +153,11 @@ def build_messages_snippet(rows, max_chars: int = 100_000) -> str:
     s = "\n".join(lines)
     return s[:max_chars]
 
-async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, ctx: ContextTypes.DEFAULT_TYPE, toxicity_level: int = 9) -> str | None:
+
+async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, ctx: ContextTypes.DEFAULT_TYPE,
+                        toxicity_level: int = 9) -> str | None:
     start_utc = start_local.astimezone(ZoneInfo("UTC"))
-    end_utc   = end_local.astimezone(ZoneInfo("UTC"))
+    end_utc = end_local.astimezone(ZoneInfo("UTC"))
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute(
             "SELECT * FROM messages WHERE chat_id=? AND ts_utc>=? AND ts_utc<? ORDER BY ts_utc ASC",
@@ -180,6 +182,26 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
         m = re.search(r"\{.*\}", raw, re.S)
         data = json.loads(m.group(0) if m else raw)
         topics = data.get("topics", [])
+    except ValueError as e:
+        # Check if it's a safety filter blocking
+        if "response to contain a valid `Part`" in str(e) or "finish_reason" in str(e):
+            config.log.warning("Gemini blocked request due to safety policy (toxicity level: %d)", toxicity_level)
+            day_str = (start_local.date()).strftime("%d.%m.%Y")
+
+            # Return ironic message about safety filters
+            ironic_messages = [
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🤖 Ой, вибачте! Наш штучний розум Gemini вирішив, що ваші повідомлення занадто токсичні для його ніжної природи і відмовився їх аналізувати.\n\n😅 Спробуйте пізніше з командою <code>/summary_now 0</code> для більш дружелюбного стилю, або просто зачекайте — можливо, завтра він буде у кращому настрої!",
+
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🛡️ Google Gemini активував режим \"захист від токсичності\" і відмовляється читати ваші повідомлення. Видимо, ви сьогодні були особливо \"вибуховими\"!\n\n🙃 Рекомендую спробувати <code>/summary_now 3</code> для більш м'якого підходу.",
+
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🚫 Штучний інтелект застрайкував! Gemini каже: \"Я не буду аналізувати цей рівень токсичності, знайдіть собі іншого бота!\"\n\n😏 Спробуйте знизити градус до розумних меж командою <code>/summary_now 2</code>.",
+            ]
+
+            import random
+            return random.choice(ironic_messages)
+        else:
+            config.log.exception("Gemini summary error: %s", e)
+            return None
     except Exception as e:
         config.log.exception("Gemini summary error: %s", e)
         return None
@@ -198,9 +220,9 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
 
     for t in topics[:15]:
         title = clean_text(t.get("short_title") or "")
-        summ  = clean_text(t.get("summary") or "")
-        mid   = t.get("first_message_id")
-        uid   = t.get("initiator_user_id")
+        summ = clean_text(t.get("summary") or "")
+        mid = t.get("first_message_id")
+        uid = t.get("initiator_user_id")
 
         if isinstance(mid, int) and mid in by_mid:
             msg_url = message_link(chat, mid)
@@ -221,3 +243,4 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
         items.append(line)
 
     return header + "\n\n" + "\n\n".join(items)
+
