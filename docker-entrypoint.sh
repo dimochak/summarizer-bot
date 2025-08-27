@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+apt update && apt install sqlite3
+
 echo "[entrypoint] Backfilling today's messages for enabled chats..."
 uv run python -m src.backfill.backfill_all_today || echo "[entrypoint] Backfill step finished with non-zero exit (continuing to start the bot)"
 
