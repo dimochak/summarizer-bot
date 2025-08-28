@@ -26,7 +26,7 @@ def get_toxicity_prompt(toxicity_level: int) -> str:
     base_prompt = """Ти — помічник, що групує повідомлення чату у теми за календарний день.
 
 Завдання:
-1) Зкластеризуй повідомлення у 2–5 тем.
+1) Зкластеризуй повідомлення у 2–7 тем.
 2) Для кожної теми визнач:
    - short_title: ≤7 слів, змістовна назва
    - first_message_id: message_id першого (найранішого) повідомлення в темі
@@ -170,46 +170,57 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
         return None
 
     snippet = build_messages_snippet(rows)
-    prompt = f"""{get_toxicity_prompt(toxicity_level)}
+    day_str = (start_local.date()).strftime("%d.%m.%Y")
+
+    # Try from requested toxicity_level down to 0 until we get a response (fallback on safety blocks)
+    requested_level = max(0, min(9, toxicity_level))
+    topics = []
+    safety_blocked_encountered = False
+
+    for level in range(requested_level, -1, -1):
+        prompt = f"""{get_toxicity_prompt(level)}
 
 Нижче повідомлення за день у форматі рядків:
 {snippet}
 """
-
-    try:
-        resp = model.generate_content(prompt)
-        raw = resp.text or ""
-        m = re.search(r"\{.*\}", raw, re.S)
-        data = json.loads(m.group(0) if m else raw)
-        topics = data.get("topics", [])
-    except ValueError as e:
-        # Check if it's a safety filter blocking
-        if "response to contain a valid `Part`" in str(e) or "finish_reason" in str(e):
-            config.log.warning("Gemini blocked request due to safety policy (toxicity level: %d)", toxicity_level)
-            day_str = (start_local.date()).strftime("%d.%m.%Y")
-
-            # Return ironic message about safety filters
-            ironic_messages = [
-                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🤖 Ой, вибачте! Наш штучний розум Gemini вирішив, що ваші повідомлення занадто токсичні для його ніжної природи і відмовився їх аналізувати.\n\n😅 Спробуйте пізніше з командою <code>/summary_now 0</code> для більш дружелюбного стилю, або просто зачекайте — можливо, завтра він буде у кращому настрої!",
-
-                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🛡️ Google Gemini активував режим \"захист від токсичності\" і відмовляється читати ваші повідомлення. Видимо, ви сьогодні були особливо \"вибуховими\"!\n\n🙃 Рекомендую спробувати <code>/summary_now 3</code> для більш м'якого підходу.",
-
-                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🚫 Штучний інтелект застрайкував! Gemini каже: \"Я не буду аналізувати цей рівень токсичності, знайдіть собі іншого бота!\"\n\n😏 Спробуйте знизити градус до розумних меж командою <code>/summary_now 2</code>.",
-            ]
-
-            import random
-            return random.choice(ironic_messages)
-        else:
+        try:
+            config.log.info("Gemini prompt: %s", prompt)
+            config.log.info("")
+            resp = model.generate_content(prompt)
+            raw = resp.text or ""
+            m = re.search(r"\{.*\}", raw, re.S)
+            data = json.loads(m.group(0) if m else raw)
+            topics = data.get("topics", [])
+            if topics:
+                toxicity_level = level  # record the actual level that worked
+                break
+            # If no topics returned, try a lower toxicity just in case model was overly strict
+            config.log.warning("Gemini returned no topics at toxicity level %d, trying lower level...", level)
+        except ValueError as e:
+            # Heuristic: detect Gemini safety filter blocking or similar conditions and retry with lower level
+            if "response to contain a valid `Part`" in str(e) or "finish_reason" in str(e):
+                safety_blocked_encountered = True
+                config.log.warning("Gemini blocked request due to safety policy (toxicity level: %d). Retrying with lower level...", level)
+                continue
+            else:
+                config.log.exception("Gemini summary error: %s", e)
+                return None
+        except Exception as e:
             config.log.exception("Gemini summary error: %s", e)
             return None
-    except Exception as e:
-        config.log.exception("Gemini summary error: %s", e)
-        return None
 
     if not topics:
+        if safety_blocked_encountered:
+            # Return ironic message about safety filters only if we kept being blocked down to level 0
+            ironic_messages = [
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🤖 Ой, вибачте! Наш штучний розум Gemini вирішив, що ваші повідомлення занадто токсичні для його ніжної природи і відмовився їх аналізувати.\n\n😅 Спробуйте пізніше з командою <code>/summary_now 0</code> для більш дружелюбного стилю, або просто зачекайте — можливо, завтра він буде у кращому настрої!",
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🛡️ Google Gemini активував режим \"захист від токсичності\" і відмовляється читати ваші повідомлення. Видимо, ви сьогодні були особливо \"вибуховими\"!\n\n🙃 Рекомендую спробувати <code>/summary_now 3</code> для більш м'якого підходу.",
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🚫 Штучний інтелект застрайкував! Gemini каже: \"Я не буду аналізувати цей рівень токсичності, знайдіть собі іншого бота!\"\n\n😏 Спробуйте знизити градус до розумних меж командою <code>/summary_now 2</code>.",
+            ]
+            import random
+            return random.choice(ironic_messages)
         return None
 
-    day_str = (start_local.date()).strftime("%d.%m.%Y")
     header = f"<b>#Підсумки_дня — {escape(day_str)}</b>"
     items = []
 
