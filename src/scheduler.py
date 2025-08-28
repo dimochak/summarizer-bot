@@ -39,4 +39,4 @@ def schedule_daily(app: Application):
         time=dtime(23, 59, tzinfo=config.KYIV),
         name="daily_summary_all"
     )
-    config.log.info("Daily job scheduled for 00:00 %s", config.TZ)
+    config.log.info("Daily job scheduled for 23:59 %s", config.TZ)
