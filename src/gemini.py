@@ -184,8 +184,8 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
 {snippet}
 """
         try:
-            config.log.info("Gemini prompt: %s", prompt)
-            config.log.info("")
+            config.log.info(f"Gemini prompt: {prompt}")
+            config.log.info(f"Current toxicity level: {level} (requested: {requested_level})")
             resp = model.generate_content(prompt)
             raw = resp.text or ""
             m = re.search(r"\{.*\}", raw, re.S)
@@ -195,12 +195,12 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
                 toxicity_level = level  # record the actual level that worked
                 break
             # If no topics returned, try a lower toxicity just in case model was overly strict
-            config.log.warning("Gemini returned no topics at toxicity level %d, trying lower level...", level)
+            config.log.warning(f"Gemini returned no topics at toxicity level {level}, trying lower level...")
         except ValueError as e:
             # Heuristic: detect Gemini safety filter blocking or similar conditions and retry with lower level
             if "response to contain a valid `Part`" in str(e) or "finish_reason" in str(e):
                 safety_blocked_encountered = True
-                config.log.warning("Gemini blocked request due to safety policy (toxicity level: %d). Retrying with lower level...", level)
+                config.log.warning(f"Gemini blocked request due to safety policy (toxicity level: {level}). Retrying with lower level...")
                 continue
             else:
                 config.log.exception("Gemini summary error: %s", e)
