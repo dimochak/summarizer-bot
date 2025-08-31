@@ -1,0 +1,24 @@
+name: 📝 Linters
+on:
+  push:
+    branches:
+      - '*'
+    paths:
+      - "src/**"
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+    branches:
+      - '*'
+    paths:
+      - "src/**"
+jobs:
+  linters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          src: "./src"
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile

@@ -26,10 +26,12 @@ CREATE TABLE IF NOT EXISTS chats (
 );
 """
 
+
 def db():
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     with closing(db()) as conn, conn, closing(conn.cursor()) as cur:
@@ -37,7 +39,10 @@ def init_db():
             if stmt.strip():
                 cur.execute(stmt)
 
-def add_message(chat_id, message_id, user_id, username, full_name, text, reply_to_message_id, ts_utc):
+
+def add_message(
+    chat_id, message_id, user_id, username, full_name, text, reply_to_message_id, ts_utc
+):
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute(
             """INSERT OR IGNORE INTO messages
@@ -51,8 +56,8 @@ def add_message(chat_id, message_id, user_id, username, full_name, text, reply_t
                 full_name,
                 text,
                 reply_to_message_id,
-                ts_utc
-            )
+                ts_utc,
+            ),
         )
         conn.commit()
 
@@ -61,12 +66,17 @@ def ensure_chat_record(chat: Chat, *, enable_default: int = 1):
     """Створюємо/оновлюємо запис про чат у таблиці chats."""
     title = chat.title or chat.username or str(chat.id)
     with closing(db()) as conn, closing(conn.cursor()) as cur:
-        cur.execute("INSERT OR IGNORE INTO chats(chat_id, title, enabled) VALUES (?, ?, ?)",
-                    (chat.id, title, enable_default))
+        cur.execute(
+            "INSERT OR IGNORE INTO chats(chat_id, title, enabled) VALUES (?, ?, ?)",
+            (chat.id, title, enable_default),
+        )
         # оновлюємо title, якщо змінився
-        cur.execute("UPDATE chats SET title=? WHERE chat_id=? AND (title IS NULL OR title!=?)",
-                    (title, chat.id, title))
+        cur.execute(
+            "UPDATE chats SET title=? WHERE chat_id=? AND (title IS NULL OR title!=?)",
+            (title, chat.id, title),
+        )
         conn.commit()
+
 
 def get_enabled_chat_ids() -> list[int]:
     with closing(db()) as conn, closing(conn.cursor()) as cur:

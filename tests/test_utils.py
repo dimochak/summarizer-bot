@@ -56,8 +56,8 @@ def test_message_link_with_username():
     "chat_id,expected_prefix",
     [
         (-100987654321, "https://t.me/c/987654321/"),  # supergroup id: strip -100
-        (-123456, "https://t.me/c/123456/"),           # negative id: strip leading -
-        (123456, "https://t.me/c/123456/"),            # positive id
+        (-123456, "https://t.me/c/123456/"),  # negative id: strip leading -
+        (123456, "https://t.me/c/123456/"),  # positive id
     ],
 )
 def test_message_link_id_variants(chat_id, expected_prefix):

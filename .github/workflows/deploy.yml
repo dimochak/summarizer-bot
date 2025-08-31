@@ -1,14 +1,21 @@
 name: Fly Deploy
 
 on:
-  push:
-    branches: [ master ]
+  workflow_run:
+    workflows:
+      - 📝 Linters
+    types:
+      - completed
+
 concurrency:
   group: fly-deploy
   cancel-in-progress: true
 
 jobs:
   deploy:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'master'
     runs-on: ubuntu-latest
     permissions:
       contents: read
