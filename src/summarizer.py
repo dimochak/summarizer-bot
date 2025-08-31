@@ -6,6 +6,7 @@ from contextlib import closing
 from html import escape
 
 import google.generativeai as genai
+import tiktoken
 from openai import AsyncOpenAI
 
 from telegram import Chat
@@ -144,8 +145,16 @@ def get_toxicity_prompt(toxicity_level: int) -> str:
 
     return base_prompt + toxicity_styles[toxicity_level]
 
-def build_messages_snippet(rows, max_chars: int = 100_000) -> str:
+_encoder = tiktoken.encoding_for_model(config.OPENAI_MODEL_NAME)
+
+def build_messages_snippet(rows,
+                           max_tokens: int = 30_000,
+                           toxicity_level: int = 9) -> str:
+    """Build messages snippet with token limit using tiktoken"""
     lines = []
+    current_tokens = 0
+    tokens_remaining = max_tokens - len(_encoder.encode(get_toxicity_prompt(toxicity_level)))
+
     for r in rows:
         ts = datetime.fromtimestamp(r["ts_utc"], tz=ZoneInfo("UTC")).astimezone(config.KYIV)
         time = ts.strftime("%H:%M")
@@ -154,9 +163,17 @@ def build_messages_snippet(rows, max_chars: int = 100_000) -> str:
         if len(frag) > 500:
             frag = frag[:500] + "…"
         reply = f", reply_to={r['reply_to_message_id']}" if r["reply_to_message_id"] else ""
-        lines.append(f"[{time}] {name} (uid={r['user_id']}, mid={r['message_id']}{reply}): {frag}")
-    s = "\n".join(lines)
-    return s[:max_chars]
+
+        line = f"[{time}] {name} (uid={r['user_id']}, mid={r['message_id']}{reply}): {frag}"
+
+        line_tokens = len(_encoder.encode(line))
+        if current_tokens + line_tokens > tokens_remaining:
+            break
+
+        current_tokens += line_tokens
+        lines.append(line)
+
+    return "\n".join(lines)
 
 
 async def get_openai_summary(prompt: str) -> dict:
@@ -257,7 +274,7 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
 """
         try:
             config.log.info(f"Current toxicity level: {level} (requested: {requested_level})")
-
+            config.log.info(f"Current number of tokens: {_encoder.encode(prompt)}")
             if use_openai:
                 data = await get_openai_summary(prompt)
             else:
@@ -288,9 +305,9 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
         if safety_blocked_encountered:
             # Return ironic message about safety filters only if we kept being blocked down to level 0
             ironic_messages = [
-                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🤖 Ой, вибачте! Наш штучний розум Gemini вирішив, що ваші повідомлення занадто токсичні для його ніжної природи і відмовився їх аналізувати.\n\n😅 Спробуйте пізніше з командою <code>/summary_now 0</code> для більш дружелюбного стилю, або просто зачекайте — можливо, завтра він буде у кращому настрої!",
-                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🛡️ Google Gemini активував режим \"захист від токсичності\" і відмовляється читати ваші повідомлення. Видимо, ви сьогодні були особливо \"вибуховими\"!\n\n🙃 Рекомендую спробувати <code>/summary_now 3</code> для більш м'якого підходу.",
-                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🚫 Штучний інтелект застрайкував! Gemini каже: \"Я не буду аналізувати цей рівень токсичності, знайдіть собі іншого бота!\"\n\n😏 Спробуйте знизити градус до розумних меж командою <code>/summary_now 2</code>.",
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🤖 Ой, вибачте! Наш штучний розум вирішив, що ваші повідомлення занадто токсичні для його ніжної природи і відмовився їх аналізувати.\n\n😅 Спробуйте пізніше з командою <code>/summary_now 0</code> для більш дружелюбного стилю, або просто зачекайте — можливо, завтра він буде у кращому настрої!",
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🛡️ Штучний інтелект активував режим \"захист від токсичності\" і відмовляється читати ваші повідомлення. Видимо, ви сьогодні були особливо \"вибуховими\"!\n\n🙃 Рекомендую спробувати <code>/summary_now 3</code> для більш м'якого підходу.",
+                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🚫 Штучний інтелект застрайкував: \"Я не буду аналізувати цей рівень токсичності, знайдіть собі іншого бота!\"\n\n😏 Спробуйте знизити градус до розумних меж командою <code>/summary_now 2</code>.",
             ]
             import random
             return random.choice(ironic_messages)
