@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 import src.config as config
 from src.db import db, ensure_chat_record, add_message
-from src.gemini import summarize_day
+from src.summarizer import summarize_day
 from src.utils import utc_ts
 
 INITIAL_PLACEHOLDERS = [
@@ -23,7 +23,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg: Message = update.effective_message
     chat: Chat = update.effective_chat
 
-    if config.ALLOWED_CHAT_IDS and chat.id not in config.ALLOWED_CHAT_IDS:
+    # Check if this chat is allowed (either Gemini or OpenAI)
+    if chat.id not in config.ALLOWED_CHAT_IDS:
         return
 
     ensure_chat_record(chat)
@@ -49,12 +50,31 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.effective_message.reply_html(f"<code>{update.effective_chat.id}</code>")
+    chat_id = update.effective_chat.id
+
+    # Determine which AI provider this chat would use
+    if chat_id in config.OPENAI_CHAT_IDS:
+        provider = "OpenAI"
+    elif chat_id in config.GEMINI_CHAT_IDS:
+        provider = "Gemini"
+    else:
+        provider = "❌ Not configured"
+
+    await update.effective_message.reply_html(
+        f"<code>{chat_id}</code>\n"
+        f"AI Provider: <b>{provider}</b>"
+    )
 
 
 async def cmd_summary_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    if config.ALLOWED_CHAT_IDS and chat.id not in config.ALLOWED_CHAT_IDS:
+
+    # Check if this chat is allowed (either Gemini or OpenAI)
+    if chat.id not in config.ALLOWED_CHAT_IDS:
+        await update.effective_message.reply_text(
+            "❌ Цей чат не налаштовано для використання AI-підсумків.\n"
+            "Зверніться до адміністратора бота."
+        )
         return
 
     # Parse toxicity level from command arguments
@@ -113,26 +133,61 @@ async def cmd_summary_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_enable_summaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+
+    # Check if this chat is allowed (either Gemini or OpenAI)
+    if chat.id not in config.ALLOWED_CHAT_IDS:
+        await update.effective_message.reply_text(
+            "❌ Цей чат не налаштовано для використання AI-підсумків.\n"
+            "Зверніться до адміністратора бота."
+        )
+        return
+
     ensure_chat_record(chat)
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("UPDATE chats SET enabled=1 WHERE chat_id=?", (chat.id,))
         conn.commit()
     await update.effective_message.reply_text("✅ Daily summaries enabled for this chat.")
 
+
 async def cmd_disable_summaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+
+    # Check if this chat is allowed (either Gemini or OpenAI)
+    if chat.id not in config.ALLOWED_CHAT_IDS:
+        await update.effective_message.reply_text(
+            "❌ Цей чат не налаштовано для використання AI-підсумків.\n"
+            "Зверніться до адміністратора бота."
+        )
+        return
+
     ensure_chat_record(chat)
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("UPDATE chats SET enabled=0 WHERE chat_id=?", (chat.id,))
         conn.commit()
     await update.effective_message.reply_text("🚫 Daily summaries disabled for this chat.")
 
+
 async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+
+    # Determine AI provider and configuration status
+    if chat.id in config.OPENAI_CHAT_IDS:
+        provider_status = "OpenAI ✅"
+    elif chat.id in config.GEMINI_CHAT_IDS:
+        provider_status = "Gemini ✅"
+    else:
+        provider_status = "❌ Not configured"
+
+    # Check if summaries are enabled in database
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("SELECT enabled FROM chats WHERE chat_id=?", (chat.id,))
         row = cur.fetchone()
     enabled = (row and row["enabled"] == 1)
-    await update.effective_message.reply_text(
-        f"Status: {'ENABLED ✅' if enabled else 'DISABLED 🚫'} for this chat."
+
+    status_text = (
+        f"**Configuration Status:**\n"
+        f"AI Provider: {provider_status}\n"
+        f"Daily Summaries: {'ENABLED ✅' if enabled else 'DISABLED 🚫'}"
     )
+
+    await update.effective_message.reply_text(status_text)
