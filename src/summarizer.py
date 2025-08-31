@@ -19,7 +19,7 @@ from src.utils import utc_ts, clean_text, message_link, user_link
 genai.configure(api_key=config.GEMINI_API_KEY)
 gemini_model = genai.GenerativeModel(
     config.GEMINI_MODEL_NAME,
-    generation_config={"response_mime_type": "application/json"}
+    generation_config={"response_mime_type": "application/json"},
 )
 openai_client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 
@@ -134,10 +134,10 @@ def get_toxicity_prompt(toxicity_level: int) -> str:
 - Використовуй максимально токсичну лексику та їдкий сарказм
 - Безжалісно висміюй тупість, лицемірство, безглуздя
 - Для російських тем - повна словесна деструкція окупантів
-- Заохочується чорний гумор 
+- Заохочується чорний гумор
 - Ніякої толерантності до дурниць
 - Будь максимально провокаційним та контроверсійним
-"""
+""",
     }
 
     # Clamp toxicity level to 0-9 range
@@ -145,24 +145,36 @@ def get_toxicity_prompt(toxicity_level: int) -> str:
 
     return base_prompt + toxicity_styles[toxicity_level]
 
+
 _encoder = tiktoken.encoding_for_model(config.OPENAI_MODEL_NAME)
 
-def build_messages_snippet(rows,
-                           max_tokens: int = 30_000,
-                           toxicity_level: int = 9) -> str:
+
+def build_messages_snippet(
+    rows, max_tokens: int = 30_000, toxicity_level: int = 9
+) -> str:
     """Build messages snippet with token limit using tiktoken"""
     lines = []
     current_tokens = 0
-    tokens_remaining = max_tokens - len(_encoder.encode(get_toxicity_prompt(toxicity_level)))
+    tokens_remaining = max_tokens - len(
+        _encoder.encode(get_toxicity_prompt(toxicity_level))
+    )
 
     for r in rows:
-        ts = datetime.fromtimestamp(r["ts_utc"], tz=ZoneInfo("UTC")).astimezone(config.KYIV)
+        ts = datetime.fromtimestamp(r["ts_utc"], tz=ZoneInfo("UTC")).astimezone(
+            config.KYIV
+        )
         time = ts.strftime("%H:%M")
-        name = r["full_name"] or (r["username"] and f"@{r['username']}") or f"id{r['user_id']}"
+        name = (
+            r["full_name"]
+            or (r["username"] and f"@{r['username']}")
+            or f"id{r['user_id']}"
+        )
         frag = (r["text"] or "").replace("\n", " ").strip()
         if len(frag) > 500:
             frag = frag[:500] + "…"
-        reply = f", reply_to={r['reply_to_message_id']}" if r["reply_to_message_id"] else ""
+        reply = (
+            f", reply_to={r['reply_to_message_id']}" if r["reply_to_message_id"] else ""
+        )
 
         line = f"[{time}] {name} (uid={r['user_id']}, mid={r['message_id']}{reply}): {frag}"
 
@@ -183,11 +195,13 @@ async def get_openai_summary(prompt: str) -> dict:
         response = await openai_client.chat.completions.create(
             model=config.OPENAI_MODEL_NAME,
             messages=[
-                {"role": "system",
-                 "content": "Ти — надзвичайно саркастичний та їдкий помічник, що групує повідомлення чату у теми за календарний день. Завжди відповідай у форматі JSON"},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": "Ти — надзвичайно саркастичний та їдкий помічник, що групує повідомлення чату у теми за календарний день. Завжди відповідай у форматі JSON",
+                },
+                {"role": "user", "content": prompt},
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
 
         content = response.choices[0].message.content
@@ -215,17 +229,24 @@ def should_use_openai(chat_id: int) -> bool:
     """Determine if we should use OpenAI for this chat"""
     return chat_id in config.OPENAI_CHAT_IDS
 
+
 def should_use_gemini(chat_id: int) -> bool:
     """Determine if we should use Gemini for this chat"""
     return chat_id in config.GEMINI_CHAT_IDS
+
 
 def is_chat_configured(chat_id: int) -> bool:
     """Check if chat is configured for any AI provider"""
     return chat_id in config.ALLOWED_CHAT_IDS
 
 
-async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, ctx: ContextTypes.DEFAULT_TYPE,
-                        toxicity_level: int = 9) -> str | None:
+async def summarize_day(
+    chat: Chat,
+    start_local: datetime,
+    end_local: datetime,
+    ctx: ContextTypes.DEFAULT_TYPE,
+    toxicity_level: int = 9,
+) -> str | None:
     # Check if chat is configured for any AI provider
     if not is_chat_configured(chat.id):
         config.log.warning(f"Chat {chat.id} is not configured for any AI provider")
@@ -256,7 +277,9 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
     elif use_gemini:
         provider_name = "Gemini"
     else:
-        config.log.error(f"Chat {chat.id} is in ALLOWED_CHAT_IDS but not in any provider-specific list")
+        config.log.error(
+            f"Chat {chat.id} is in ALLOWED_CHAT_IDS but not in any provider-specific list"
+        )
         return None
 
     config.log.info(f"Using {provider_name} for chat {chat.id}")
@@ -273,7 +296,9 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
 {snippet}
 """
         try:
-            config.log.info(f"Current toxicity level: {level} (requested: {requested_level})")
+            config.log.info(
+                f"Current toxicity level: {level} (requested: {requested_level})"
+            )
             config.log.info(f"Current number of tokens: {len(_encoder.encode(prompt))}")
             if use_openai:
                 data = await get_openai_summary(prompt)
@@ -285,14 +310,20 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
                 toxicity_level = level  # record the actual level that worked
                 break
             # If no topics returned, try a lower toxicity just in case model was overly strict
-            config.log.warning(f"{provider_name} returned no topics at toxicity level {level}, trying lower level...")
+            config.log.warning(
+                f"{provider_name} returned no topics at toxicity level {level}, trying lower level..."
+            )
         except ValueError as e:
             # Heuristic: detect safety filter blocking or similar conditions and retry with lower level
-            if "response to contain a valid `Part`" in str(e) or "finish_reason" in str(e) or "content_filter" in str(
-                    e):
+            if (
+                "response to contain a valid `Part`" in str(e)
+                or "finish_reason" in str(e)
+                or "content_filter" in str(e)
+            ):
                 safety_blocked_encountered = True
                 config.log.warning(
-                    f"{provider_name} blocked request due to safety policy (toxicity level: {level}). Retrying with lower level...")
+                    f"{provider_name} blocked request due to safety policy (toxicity level: {level}). Retrying with lower level..."
+                )
                 continue
             else:
                 config.log.exception(f"{provider_name} summary error: %s", e)
@@ -306,10 +337,11 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
             # Return ironic message about safety filters only if we kept being blocked down to level 0
             ironic_messages = [
                 f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🤖 Ой, вибачте! Наш штучний розум вирішив, що ваші повідомлення занадто токсичні для його ніжної природи і відмовився їх аналізувати.\n\n😅 Спробуйте пізніше з командою <code>/summary_now 0</code> для більш дружелюбного стилю, або просто зачекайте — можливо, завтра він буде у кращому настрої!",
-                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🛡️ Штучний інтелект активував режим \"захист від токсичності\" і відмовляється читати ваші повідомлення. Видимо, ви сьогодні були особливо \"вибуховими\"!\n\n🙃 Рекомендую спробувати <code>/summary_now 3</code> для більш м'якого підходу.",
-                f"<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🚫 Штучний інтелект застрайкував: \"Я не буду аналізувати цей рівень токсичності, знайдіть собі іншого бота!\"\n\n😏 Спробуйте знизити градус до розумних меж командою <code>/summary_now 2</code>.",
+                f'<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🛡️ Штучний інтелект активував режим "захист від токсичності" і відмовляється читати ваші повідомлення. Видимо, ви сьогодні були особливо "вибуховими"!\n\n🙃 Рекомендую спробувати <code>/summary_now 3</code> для більш м\'якого підходу.',
+                f'<b>#Підсумки_дня — {escape(day_str)}</b>\n\n🚫 Штучний інтелект застрайкував: "Я не буду аналізувати цей рівень токсичності, знайдіть собі іншого бота!"\n\n😏 Спробуйте знизити градус до розумних меж командою <code>/summary_now 2</code>.',
             ]
             import random
+
             return random.choice(ironic_messages)
         return None
 
@@ -333,11 +365,11 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
         else:
             title_html = escape(title or "Тема")
 
-        urow = (by_uid.get(uid) or {})
+        urow = by_uid.get(uid) or {}
         initiator_html = user_link(
             user_id=urow.get("user_id", uid or 0),
             username=urow.get("username"),
-            full_name=urow.get("full_name") or "Учасник"
+            full_name=urow.get("full_name") or "Учасник",
         )
 
         line = f"• {title_html} — ініціатор {initiator_html}"
@@ -346,4 +378,3 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
         items.append(line)
 
     return header + "\n\n" + "\n\n".join(items)
-

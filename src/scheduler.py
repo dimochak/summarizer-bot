@@ -20,7 +20,12 @@ async def send_daily_summary_to_chat(app: Application, chat_id: int):
     text = await summarize_day(chat, start_local, end_local, None, toxicity_level=9)
     if not text:
         text = f"<b>#Підсумки_дня — {start_local.date():%d.%m.%Y}</b>\n\nНемає повідомлень або не вдалося сформувати підсумок."
-    await app.bot.send_message(chat_id=chat.id, text=text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    await app.bot.send_message(
+        chat_id=chat.id,
+        text=text,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 async def send_all_summaries_job(context: ContextTypes.DEFAULT_TYPE):
@@ -44,6 +49,6 @@ def schedule_daily(app: Application):
     app.job_queue.run_daily(
         send_all_summaries_job,
         time=dtime(23, 59, tzinfo=config.KYIV),
-        name="daily_summary_all"
+        name="daily_summary_all",
     )
     config.log.info("Daily job scheduled for 23:59 %s", config.TZ)

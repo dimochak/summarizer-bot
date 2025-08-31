@@ -45,7 +45,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (msg.from_user and msg.from_user.full_name) or None,
         text,
         (msg.reply_to_message and msg.reply_to_message.message_id) or None,
-        utc_ts(ts.astimezone(timezone.utc))
+        utc_ts(ts.astimezone(timezone.utc)),
     )
 
 
@@ -61,8 +61,7 @@ async def cmd_chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         provider = "❌ Not configured"
 
     await update.effective_message.reply_html(
-        f"<code>{chat_id}</code>\n"
-        f"AI Provider: <b>{provider}</b>"
+        f"<code>{chat_id}</code>\nAI Provider: <b>{provider}</b>"
     )
 
 
@@ -112,11 +111,15 @@ async def cmd_summary_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         placeholder_messages = INITIAL_PLACEHOLDERS
 
     # Send a placeholder message first to acknowledge the command
-    placeholder_message = await update.effective_message.reply_html(random.choice(placeholder_messages))
+    placeholder_message = await update.effective_message.reply_html(
+        random.choice(placeholder_messages)
+    )
 
     # Perform the long-running summary generation
     now_local = datetime.now(tz=config.KYIV)
-    start_local = datetime.combine(now_local.date(), dtime.min, tzinfo=config.KYIV)  # сьогодні від 00:00
+    start_local = datetime.combine(
+        now_local.date(), dtime.min, tzinfo=config.KYIV
+    )  # сьогодні від 00:00
     text = await summarize_day(chat, start_local, now_local, context, toxicity_level)
 
     # Prepare the final text
@@ -125,9 +128,7 @@ async def cmd_summary_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Edit the placeholder message with the final summary
     await placeholder_message.edit_text(
-        text,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True
+        text, parse_mode=ParseMode.HTML, disable_web_page_preview=True
     )
 
 
@@ -146,7 +147,9 @@ async def cmd_enable_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("UPDATE chats SET enabled=1 WHERE chat_id=?", (chat.id,))
         conn.commit()
-    await update.effective_message.reply_text("✅ Daily summaries enabled for this chat.")
+    await update.effective_message.reply_text(
+        "✅ Daily summaries enabled for this chat."
+    )
 
 
 async def cmd_disable_summaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -164,7 +167,9 @@ async def cmd_disable_summaries(update: Update, context: ContextTypes.DEFAULT_TY
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("UPDATE chats SET enabled=0 WHERE chat_id=?", (chat.id,))
         conn.commit()
-    await update.effective_message.reply_text("🚫 Daily summaries disabled for this chat.")
+    await update.effective_message.reply_text(
+        "🚫 Daily summaries disabled for this chat."
+    )
 
 
 async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -182,7 +187,7 @@ async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("SELECT enabled FROM chats WHERE chat_id=?", (chat.id,))
         row = cur.fetchone()
-    enabled = (row and row["enabled"] == 1)
+    enabled = row and row["enabled"] == 1
 
     status_text = (
         f"**Configuration Status:**\n"
