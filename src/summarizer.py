@@ -274,7 +274,7 @@ async def summarize_day(chat: Chat, start_local: datetime, end_local: datetime, 
 """
         try:
             config.log.info(f"Current toxicity level: {level} (requested: {requested_level})")
-            config.log.info(f"Current number of tokens: {_encoder.encode(prompt)}")
+            config.log.info(f"Current number of tokens: {len(_encoder.encode(prompt))}")
             if use_openai:
                 data = await get_openai_summary(prompt)
             else:
