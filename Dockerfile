@@ -1,7 +1,7 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends sqlite3=3.37.2-2ubuntu0.5 && \
+    apt-get install -y --no-install-recommends sqlite3=3.40.1-2 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
