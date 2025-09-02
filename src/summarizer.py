@@ -23,7 +23,7 @@ gemini_model = genai.GenerativeModel(
 )
 openai_client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 
-MAX_TOPICS_NUM = 7
+MAX_TOPICS_NUM = 6
 
 
 def get_toxicity_prompt(toxicity_level: int) -> str:
@@ -37,7 +37,8 @@ def get_toxicity_prompt(toxicity_level: int) -> str:
    - short_title: ≤7 слів, змістовна назва
    - first_message_id: message_id першого (найранішого) повідомлення в темі
    - initiator_user_id: user_id автора першого повідомлення теми
-   - summary: 1–3 речення підсумку з коментарем у відповідному стилі.
+   - summary: 1–3 речення підсумку з коментарем у відповідному стилі. 
+Якщо якась тема стосується зборів на українську армію -- заохоть людей задонатити на збір. 
 
 3) Поверни РІВНО JSON такого вигляду:
 {{
