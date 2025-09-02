@@ -7,8 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.db import init_db
-from src.config import TZ, ALLOWED_CHAT_IDS
+from src.db import init_db  # noqa E402
+from src.config import TZ, ALLOWED_CHAT_IDS  # noqa E402
+
 
 def main():
     api_id = os.getenv("TELEGRAM_API_ID")
@@ -35,12 +36,18 @@ def main():
             subprocess.run(
                 [
                     sys.executable,
-                    "-m", "src.backfill.backfill_today",
-                    "--api-id", str(int(api_id)),
-                    "--api-hash", api_hash,
-                    "--chat-id", str(cid),
-                    "--tz", TZ,
-                    "--date", date_str,
+                    "-m",
+                    "src.backfill.backfill_today",
+                    "--api-id",
+                    str(int(api_id)),
+                    "--api-hash",
+                    api_hash,
+                    "--chat-id",
+                    str(cid),
+                    "--tz",
+                    TZ,
+                    "--date",
+                    date_str,
                 ],
                 check=True,
             )
@@ -49,6 +56,7 @@ def main():
 
     print("Backfill step completed.")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

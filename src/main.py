@@ -1,9 +1,4 @@
-from telegram.ext import (
-    ApplicationBuilder,
-    MessageHandler,
-    CommandHandler,
-    filters
-)
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
 import src.config as config
 from src.db import init_db
@@ -23,7 +18,9 @@ def main():
 
     app = ApplicationBuilder().token(config.TELEGRAM_BOT_TOKEN).build()
 
-    app.add_handler(MessageHandler(~filters.StatusUpdate.ALL & ~filters.COMMAND, on_message))
+    app.add_handler(
+        MessageHandler(~filters.StatusUpdate.ALL & ~filters.COMMAND, on_message)
+    )
 
     app.add_handler(CommandHandler("chatid", cmd_chatid))
     app.add_handler(CommandHandler("summary_now", cmd_summary_now))
@@ -34,6 +31,7 @@ def main():
     schedule_daily(app)
     config.log.info("Bot started.")
     app.run_polling(close_loop=False)
+
 
 if __name__ == "__main__":
     main()
