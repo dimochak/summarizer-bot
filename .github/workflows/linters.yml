@@ -5,12 +5,17 @@ on:
       - '*'
     paths:
       - "src/**"
+      - "tests/**"
+      - "Dockerfile"
   pull_request:
     types: [ opened, synchronize, reopened ]
     branches:
       - '*'
     paths:
       - "src/**"
+      - "tests/**"
+      - "Dockerfile"
+
 jobs:
   linters:
     runs-on: ubuntu-latest
