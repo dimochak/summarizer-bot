@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 import pytest
 
+import src.utils as utils
+
 # Ensure project root is on sys.path so `import src...` works
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -17,8 +19,6 @@ if str(PROJECT_ROOT) not in sys.path:
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("GEMINI_API_KEY", "test-gemini-key")
 os.environ.setdefault("TZ", "Europe/Kyiv")
-
-import src.utils as utils
 
 
 def test_utc_ts():

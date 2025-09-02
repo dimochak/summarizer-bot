@@ -1,8 +1,8 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 RUN apt-get update && \
-    apt-get install -y sqlite3 && \
-    rm -rf /var/lib/apt/lists/* \
+    apt-get install -y --no-install-recommends sqlite3=3.37.2-2ubuntu0.5 && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -15,6 +15,4 @@ COPY . .
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
-# Entrypoint
 CMD ["./docker-entrypoint.sh"]
-
