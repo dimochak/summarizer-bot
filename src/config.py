@@ -10,7 +10,7 @@ GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 TZ = os.getenv("TZ", "Europe/Kyiv")
-GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash")
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-flash")
 OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
 # Configuration for Gemini-enabled chat IDs
