@@ -7,7 +7,8 @@ RUN apt update && \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock* ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev && \
+    uv add "telethon==1.*"
 
 COPY . .
 

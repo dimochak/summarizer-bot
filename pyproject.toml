@@ -13,6 +13,7 @@ dependencies = [
     "python-telegram-bot==21.*",
     "pytz==2024.*",
     "telethon==1.*",
+    "tiktoken>=0.11.0",
 ]
 
 [dependency-groups]
