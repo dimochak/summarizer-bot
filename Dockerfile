@@ -2,8 +2,8 @@ FROM ghcr.io/astral-sh/uv:python3.11-bookworm
 WORKDIR /app
 
 COPY pyproject.toml uv.lock* ./
-RUN uv sync --frozen --no-dev
-RUN uv add "telethon==1.*"
+RUN uv sync --frozen --no-dev && \
+    uv add "telethon==1.*"
 
 COPY . .
 
