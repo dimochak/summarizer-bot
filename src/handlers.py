@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 import src.config as config
 from src.db import db, ensure_chat_record, add_message
-from src.summarizer import summarize_day
+from src.summarizer.summarizer import summarize_day
 from src.utils import utc_ts
 
 INITIAL_PLACEHOLDERS = [

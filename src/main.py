@@ -23,10 +23,14 @@ def main():
     )
 
     app.add_handler(CommandHandler("chatid", cmd_chatid))
+
+    # Summarizer commands
     app.add_handler(CommandHandler("summary_now", cmd_summary_now))
     app.add_handler(CommandHandler("enable_summaries", cmd_enable_summaries))
     app.add_handler(CommandHandler("disable_summaries", cmd_disable_summaries))
     app.add_handler(CommandHandler("status_summaries", cmd_status_summaries))
+
+    # PanBot commands: TBD
 
     schedule_daily(app)
     config.log.info("Bot started.")

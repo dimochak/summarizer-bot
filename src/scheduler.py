@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes, Application
 
 import src.config as config
 from src.db import get_enabled_chat_ids
-from src.summarizer import summarize_day
+from src.summarizer.summarizer import summarize_day
 from src.utils import local_midnight_bounds
 
 
