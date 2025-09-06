@@ -48,7 +48,7 @@ async def send_all_summaries_job(context: ContextTypes.DEFAULT_TYPE):
 def schedule_daily(app: Application):
     app.job_queue.run_daily(
         send_all_summaries_job,
-        time=dtime(23, 59,
+        time=dtime(13, 38,
                    tzinfo=config.KYIV),
         name="daily_summary_all",
     )
