@@ -1,5 +1,6 @@
 import os
 import logging
+from logging.handlers import TimedRotatingFileHandler
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
@@ -31,9 +32,24 @@ ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 KYIV = ZoneInfo(TZ)
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("daily-summary-bot")
+LOG_FILENAME = "bot.log"
+logger = logging.getLogger("daily-summary-bot")
+logger.setLevel(logging.INFO)
 
+handler = TimedRotatingFileHandler(
+    LOG_FILENAME,
+    when="midnight",
+    backupCount=7,
+    encoding='utf-8'
+)
+formatter = logging.Formatter(
+    "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+log = logger
 log.info("Configuration loaded.")
 log.info("TZ=%s", TZ)
 log.info("GEMINI_CHAT_IDS=%s", GEMINI_CHAT_IDS)

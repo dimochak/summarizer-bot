@@ -39,6 +39,7 @@ def init_db():
             if stmt.strip():
                 cur.execute(stmt)
 
+    enable_daily_summaries_for_all_allowed_chats()
 
 def add_message(
     chat_id, message_id, user_id, username, full_name, text, reply_to_message_id, ts_utc
@@ -76,6 +77,33 @@ def ensure_chat_record(chat: Chat, *, enable_default: int = 1):
             (title, chat.id, title),
         )
         conn.commit()
+
+
+def enable_daily_summaries_for_all_allowed_chats():
+    """
+    Ensure all ALLOWED_CHAT_IDS have daily summaries enabled by default after deployment.
+    This function is idempotent and safe to run on every startup.
+    """
+    with db() as conn:
+        cur = conn.cursor()
+        for chat_id in config.ALLOWED_CHAT_IDS:
+            cur.execute("SELECT enabled FROM chats WHERE chat_id=?", (chat_id,))
+            row = cur.fetchone()
+            if row is None:
+                # Insert with enabled=1
+                cur.execute(
+                    "INSERT INTO chats (chat_id, enabled) VALUES (?, 1)",
+                    (chat_id,),
+                )
+                config.log.info(f"Inserted chat_id {chat_id} with enabled=1 in chats table")
+            elif row["enabled"] != 1:
+                cur.execute(
+                    "UPDATE chats SET enabled=1 WHERE chat_id=?",
+                    (chat_id,),
+                )
+                config.log.info(f"Updated chat_id {chat_id} to enabled=1 in chats table")
+        conn.commit()
+
 
 
 def get_enabled_chat_ids() -> list[int]:
