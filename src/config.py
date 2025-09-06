@@ -1,6 +1,6 @@
 import os
+from loguru import logger
 import logging
-from logging.handlers import TimedRotatingFileHandler
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
@@ -33,21 +33,36 @@ KYIV = ZoneInfo(TZ)
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
 LOG_FILENAME = "bot.log"
-logger = logging.getLogger("daily-summary-bot")
-logger.setLevel(logging.INFO)
 
-handler = TimedRotatingFileHandler(
+logger.remove()
+logger.add(
     LOG_FILENAME,
-    when="midnight",
-    backupCount=7,
-    encoding='utf-8'
+    level="INFO",
+    rotation="00:00",
+    retention=7,
+    encoding='utf-8',
+    format=(
+        "<green>[{time:YYYY-MM-DD HH:mm:ss}]</green> "
+        "<level>{level: <8}</level> "
+        "<cyan>{name}:{function}:{line}</cyan>: "
+        "<level>{message}</level>"
+    ),
+    enqueue=True
 )
-formatter = logging.Formatter(
-    "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+
+class InterceptHandler(logging.Handler):
+    def emit(self, record):
+        if record.levelno >= logging.WARNING:
+            try:
+                level = logger.level(record.levelname).name
+            except ValueError:
+                level = record.levelno
+            logger.opt(exception=record.exc_info).log(
+                level, record.getMessage()
+            )
+
+logging.basicConfig(handlers=[InterceptHandler()], level=logging.WARNING, force=True)
+logging.captureWarnings(True)
 
 log = logger
 log.info("Configuration loaded.")
