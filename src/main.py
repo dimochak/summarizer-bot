@@ -1,8 +1,8 @@
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
-import src.config as config
-from src.db import init_db
-from src.handlers import (
+import src.tools.config as config
+from src.tools.db import init_db
+from src.tools.handlers import (
     on_message,
     cmd_chatid,
     cmd_summary_now,
@@ -10,7 +10,7 @@ from src.handlers import (
     cmd_disable_summaries,
     cmd_status_summaries,
 )
-from src.scheduler import schedule_daily
+from src.tools.scheduler import schedule_daily
 
 
 def main():
@@ -23,6 +23,8 @@ def main():
     )
 
     app.add_handler(CommandHandler("chatid", cmd_chatid))
+
+    # Summarizer commands
     app.add_handler(CommandHandler("summary_now", cmd_summary_now))
     app.add_handler(CommandHandler("enable_summaries", cmd_enable_summaries))
     app.add_handler(CommandHandler("disable_summaries", cmd_disable_summaries))

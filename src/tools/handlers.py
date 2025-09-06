@@ -6,10 +6,11 @@ from telegram import Update, Chat, Message
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-import src.config as config
-from src.db import db, ensure_chat_record, add_message
-from src.summarizer import summarize_day
-from src.utils import utc_ts
+import src.tools.config as config
+from src.tools.db import db, ensure_chat_record, add_message
+from src.panbot.bot import PanBot, SarcasmLimitExceeded
+from src.summarizer.summarizer import summarize_day
+from src.tools.utils import utc_ts
 
 INITIAL_PLACEHOLDERS = [
     "⏳ Окей, я подивлюся, що ви там набазікали. Тільки не очікуйте нічого геніального.",
@@ -29,6 +30,8 @@ INITIAL_PLACEHOLDERS = [
     "🤏 Спробую видавити хоч краплину мудрості з цього океану словесного спаму.",
     "🎯 Цікаво, скільки разів ви сьогодні минули суть повз вуха?",
 ]
+
+panbot = PanBot(daily_limit=config.MESSAGES_PER_USER)
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,20 +63,51 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         utc_ts(ts.astimezone(timezone.utc)),
     )
 
+    # Check if PanBot should reply to this message
+    if chat.id in config.PANBOT_CHAT_IDS and panbot.should_reply(msg):
+        try:
+            response = await panbot.process_reply(msg)
+            bot_message = await msg.reply_text(response, parse_mode=ParseMode.HTML)
+            bot_ts = bot_message.date
+            if bot_ts.tzinfo is None:
+                bot_ts = bot_ts.replace(tzinfo=timezone.utc)
+            add_message(
+                chat.id,
+                bot_message.message_id,
+                config.BOT_USER_ID,
+                None,
+                "PanBot",
+                response,
+                msg.message_id,
+                utc_ts(bot_ts.astimezone(timezone.utc)),
+            )
+
+        except SarcasmLimitExceeded as e:
+            await msg.reply_text(str(e))
+
+        except Exception as e:
+            config.log.exception(f"Error in PanBot response: {e}")
+            await msg.reply_text(
+                "Щось пішло не так з моїм сарказмом... "
+                "Можливо, ваше питання було занадто складним для мого штучного інтелекту 🤖"
+            )
 
 async def cmd_chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    # Determine which AI provider this chat would use
+    provider_info = []
     if chat_id in config.OPENAI_CHAT_IDS:
-        provider = "OpenAI"
-    elif chat_id in config.GEMINI_CHAT_IDS:
-        provider = "Gemini"
-    else:
-        provider = "❌ Not configured"
+        provider_info.append("OpenAI ✅")
+    if chat_id in config.GEMINI_CHAT_IDS:
+        provider_info.append("Gemini ✅")
+    if chat_id in config.PANBOT_CHAT_IDS:
+        provider_info.append("PanBot ✅")
+
+    if not provider_info:
+        provider_info = ["❌ Not configured"]
 
     await update.effective_message.reply_html(
-        f"<code>{chat_id}</code>\nAI Provider: <b>{provider}</b>"
+        f"<code>{chat_id}</code>\nServices: <b>{', '.join(provider_info)}</b>"
     )
 
 
