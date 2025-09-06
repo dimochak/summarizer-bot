@@ -2,10 +2,10 @@ from datetime import datetime, time as dtime
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, Application
 
-import src.config as config
-from src.db import get_enabled_chat_ids
+import src.tools.config as config
+from src.tools.db import get_enabled_chat_ids
 from src.summarizer.summarizer import summarize_day
-from src.utils import local_midnight_bounds
+from src.tools.utils import local_midnight_bounds
 
 
 async def send_daily_summary_to_chat(app: Application, chat_id: int):

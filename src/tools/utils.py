@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from html import escape
 from telegram import Chat
 
-import src.config as config
+import src.tools.config as config
 
 
 def utc_ts(dt: datetime) -> int:

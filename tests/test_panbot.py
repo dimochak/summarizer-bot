@@ -30,13 +30,9 @@ def test_trigger_and_reply(pan_bot):
 
 def test_conversation_memory_prompt_includes_past_messages(pan_bot):
     # User triggers bot → then continues conversation in replies
-    orig = FakeMessage("Пан бот, що це таке?", user_id=20, message_id=1)
-    reply1 = FakeMessage("Поясни, будь-ласка", user_id=21, message_id=2, reply_to_message_id=1)
+    # orig = FakeMessage("Пан бот, що це таке?", user_id=20, message_id=1)
+    # reply1 = FakeMessage("Поясни, будь-ласка", user_id=21, message_id=2, reply_to_message_id=1)
     reply2 = FakeMessage("І навіщо це все?", user_id=21, message_id=3, reply_to_message_id=2)
-    # Add conversation chain to panbot memory or context API
-    pan_bot.save_message(orig)
-    pan_bot.save_message(reply1)
-    pan_bot.save_message(reply2)
     # The context for reply2 should include orig and reply1 in conversational order
     prompt = pan_bot.build_conversation_prompt(reply2)
     assert "що це таке?" in prompt

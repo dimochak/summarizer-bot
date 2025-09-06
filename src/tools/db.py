@@ -2,7 +2,7 @@ import sqlite3
 from contextlib import closing
 from telegram import Chat
 
-import src.config as config
+import src.tools.config as config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
@@ -24,6 +24,16 @@ CREATE TABLE IF NOT EXISTS chats (
     title TEXT,
     enabled INTEGER NOT NULL DEFAULT 0
 );
+    
+CREATE TABLE IF NOT EXISTS panbot_limits (
+    user_id INTEGER NOT NULL,
+    chat_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, chat_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_panbot_limits_date ON panbot_limits(date);
 """
 
 
@@ -35,9 +45,10 @@ def db():
 
 def init_db():
     with closing(db()) as conn, conn, closing(conn.cursor()) as cur:
-        for stmt in SCHEMA.strip().split(";\n\n"):
-            if stmt.strip():
-                cur.execute(stmt)
+        statements = [stmt.strip() for stmt in SCHEMA.split(';') if stmt.strip()]
+
+        for stmt in statements:
+            cur.execute(stmt)
 
     enable_daily_summaries_for_all_allowed_chats()
 
@@ -110,3 +121,53 @@ def get_enabled_chat_ids() -> list[int]:
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute("SELECT chat_id FROM chats WHERE enabled=1")
         return [r[0] for r in cur.fetchall()]
+
+
+def get_panbot_usage(user_id: int, chat_id: int, date: str) -> int:
+    """Get current usage count for user on specific date"""
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            "SELECT count FROM panbot_limits WHERE user_id=? AND chat_id=? AND date=?",
+            (user_id, chat_id, date)
+        )
+        row = cur.fetchone()
+        return row["count"] if row else 0
+
+
+def increment_panbot_usage(user_id: int, chat_id: int, date: str) -> int:
+    """Increment usage count for user and return new count"""
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """INSERT OR REPLACE INTO panbot_limits (user_id, chat_id, date, count)
+               VALUES (?, ?, ?, COALESCE(
+                   (SELECT count FROM panbot_limits WHERE user_id=? AND chat_id=? AND date=?) + 1,
+                   1
+               ))""",
+            (user_id, chat_id, date, user_id, chat_id, date)
+        )
+        conn.commit()
+
+        # Get the new count
+        cur.execute(
+            "SELECT count FROM panbot_limits WHERE user_id=? AND chat_id=? AND date=?",
+            (user_id, chat_id, date)
+        )
+        return cur.fetchone()["count"]
+
+
+def reset_panbot_usage_for_date(date: str):
+    """Reset all usage counts for a specific date (for testing)"""
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute("DELETE FROM panbot_limits WHERE date=?", (date,))
+        conn.commit()
+
+
+def is_bot_message(chat_id: int, message_id: int) -> bool:
+    """Check if a message was sent by the bot"""
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            "SELECT user_id FROM messages WHERE chat_id=? AND message_id=?",
+            (chat_id, message_id)
+        )
+        row = cur.fetchone()
+        return row is not None and row["user_id"] == config.BOT_USER_ID

@@ -7,7 +7,7 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import User
 
-from src.db import init_db, add_message
+from src.tools.db import init_db, add_message
 
 
 def insert_row(r):
