@@ -33,3 +33,12 @@ DB_PATH = os.getenv("DB_PATH", "bot.db")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("daily-summary-bot")
+
+log.info("Configuration loaded.")
+log.info("TZ=%s", TZ)
+log.info("GEMINI_CHAT_IDS=%s", GEMINI_CHAT_IDS)
+log.info("OPENAI_CHAT_IDS=%s", OPENAI_CHAT_IDS)
+log.info("ALLOWED_CHAT_IDS=%s", ALLOWED_CHAT_IDS)
+log.info("DB_PATH=%s", DB_PATH)
+log.info("GEMINI_MODEL_NAME=%s", GEMINI_MODEL_NAME)
+log.info("OPENAI_MODEL_NAME=%s", OPENAI_MODEL_NAME)
