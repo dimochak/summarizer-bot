@@ -12,9 +12,9 @@ from openai import AsyncOpenAI
 from telegram import Chat
 from telegram.ext import ContextTypes
 
-import src.config as config
-from src.db import db
-from src.utils import utc_ts, clean_text, message_link, user_link
+import src.tools.config as config
+from src.tools.db import db
+from src.tools.utils import utc_ts, clean_text, message_link, user_link
 
 genai.configure(api_key=config.GEMINI_API_KEY)
 gemini_model = genai.GenerativeModel(
