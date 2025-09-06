@@ -1,3 +1,6 @@
+from src.tools.db import init_db
+from src.tools.config import TZ, ALLOWED_CHAT_IDS
+
 import os
 import sys
 import subprocess
@@ -7,8 +10,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.db import init_db  # noqa E402
-from src.config import TZ, ALLOWED_CHAT_IDS  # noqa E402
 
 
 def main():
@@ -37,7 +38,7 @@ def main():
                 [
                     sys.executable,
                     "-m",
-                    "src.backfill.backfill_today",
+                    "src.tools.backfill.backfill_today",
                     "--api-id",
                     str(int(api_id)),
                     "--api-hash",
