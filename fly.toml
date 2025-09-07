@@ -20,3 +20,8 @@ primary_region = 'waw'
   memory = '512mb'
   cpu_kind = 'shared'
   cpus = 1
+
+# Add persistent volume for database
+[mounts]
+  source = "bot_data"
+  destination = "/app/data"

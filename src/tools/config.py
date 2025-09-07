@@ -16,7 +16,7 @@ OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
 # Bot's special user ID for identifying bot messages
 BOT_USER_ID = -1  # Special ID for bot messages
-MESSAGES_PER_USER = 5
+MESSAGES_PER_USER = 10
 
 # Configuration for Gemini-enabled chat IDs
 _gemini_env = os.getenv("GEMINI_CHAT_IDS")
@@ -42,7 +42,7 @@ if _panbot_env:
 ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 
 KYIV = ZoneInfo(TZ)
-DB_PATH = os.getenv("DB_PATH", "bot.db")
+DB_PATH = os.getenv("DB_PATH", "/app/data/bot.db" if os.path.exists("/app/data") else "bot.db")
 
 LOG_FILENAME = "bot.log"
 
