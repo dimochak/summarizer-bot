@@ -206,10 +206,12 @@ class PanBot:
             Користувач {user_name} написав: {user_message}
             
             Проаналізуй тон користувача та дай відповідь у відповідному стилі у JSON форматі:
-            {{"response": "твоя адаптивна відповідь тут"}}"""
+            {{"response": "твоя адаптована відповідь тут"}}"""
 
 
             try:
+                config.log.info(f"Generating sarcastic response using {provider}")
+                config.log.info(f"Prompt: {prompt}")
                 if provider == "openai":
                     response = await self.openai_client.chat.completions.create(
                         model=config.OPENAI_MODEL_NAME,
