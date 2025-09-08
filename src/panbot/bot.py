@@ -72,7 +72,7 @@ class PanBot:
         current_time = int(message.date.timestamp())
 
         # Look back 10 minutes for context
-        lookback_seconds = 600
+        lookback_seconds = 60 * 60
         start_time = current_time - lookback_seconds
 
         with closing(db()) as conn, closing(conn.cursor()) as cur:
@@ -80,7 +80,7 @@ class PanBot:
             cur.execute(
                 """SELECT text, full_name, username FROM messages 
                    WHERE chat_id=? AND ts_utc>=? AND ts_utc<? AND message_id!=?
-                   ORDER BY ts_utc DESC LIMIT 5""",
+                   ORDER BY ts_utc DESC LIMIT 100""",
                 (chat_id, start_time, current_time, message.message_id)
             )
             rows = cur.fetchall()
@@ -215,7 +215,7 @@ class PanBot:
                         model=config.OPENAI_MODEL_NAME,
                         messages=[
                             {"role": "system",
-                             "content": "Ти іронічний український чат-бот. Завжди відповідай у JSON форматі."},
+                             "content": "Ти іронічний український чат-бот, який адаптує свій стиль спілкування залежно від тону співрозмовника. Завжди відповідай у JSON форматі."},
                             {"role": "user", "content": prompt}
                         ],
                         response_format={"type": "json_object"}
