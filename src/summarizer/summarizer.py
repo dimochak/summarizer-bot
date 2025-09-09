@@ -23,7 +23,7 @@ gemini_model = genai.GenerativeModel(
 )
 openai_client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 
-MAX_TOPICS_NUM = 6
+MAX_TOPICS_NUM = 7
 
 
 def get_toxicity_prompt(toxicity_level: int) -> str:
@@ -147,7 +147,10 @@ def get_toxicity_prompt(toxicity_level: int) -> str:
     return base_prompt + toxicity_styles[toxicity_level]
 
 
-_encoder = tiktoken.encoding_for_model(config.OPENAI_MODEL_NAME)
+try:
+    _encoder = tiktoken.encoding_for_model(config.OPENAI_MODEL_NAME)
+except KeyError:
+    _encoder = tiktoken.get_encoding("cl100k_base")
 
 
 def build_messages_snippet(
