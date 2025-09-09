@@ -44,7 +44,7 @@ ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 KYIV = ZoneInfo(TZ)
 DB_PATH = os.getenv("DB_PATH", "/app/data/bot.db" if os.path.exists("/app/data") else "bot.db")
 
-LOG_FILENAME = "bot.log"
+LOG_FILENAME = os.path.join("/app/data", "bot.log")
 
 logger.remove()
 logger.add(
