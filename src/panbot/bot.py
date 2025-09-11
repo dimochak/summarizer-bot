@@ -79,7 +79,7 @@ class PanBot:
             # Get recent messages, excluding the current one
             cur.execute(
                 """SELECT text, full_name, username FROM messages 
-                   WHERE chat_id=? AND ts_utc>=? AND ts_utc<? AND message_id!=?
+                   WHERE chat_id=%s AND ts_utc>=%s AND ts_utc<%s AND message_id!=%s
                    ORDER BY ts_utc DESC LIMIT 200""",
                 (chat_id, start_time, current_time, message.message_id)
             )
