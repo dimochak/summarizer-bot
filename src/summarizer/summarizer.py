@@ -260,7 +260,7 @@ async def summarize_day(
     end_utc = end_local.astimezone(ZoneInfo("UTC"))
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute(
-            "SELECT * FROM messages WHERE chat_id=? AND ts_utc>=? AND ts_utc<? ORDER BY ts_utc ASC",
+            "SELECT * FROM messages WHERE chat_id=%s AND ts_utc>=%s AND ts_utc<%s ORDER BY ts_utc ASC",
             (chat.id, utc_ts(start_utc), utc_ts(end_utc)),
         )
         rows = [dict(r) for r in cur.fetchall()]

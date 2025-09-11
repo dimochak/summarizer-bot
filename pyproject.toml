@@ -9,6 +9,7 @@ dependencies = [
     "loguru>=0.7.3",
     "openai>=1.102.0",
     "orjson==3.*",
+    "psycopg[binary]>=3.2.10",
     "python-dotenv==1.*",
     "python-telegram-bot==21.*",
     "pytz==2024.*",
