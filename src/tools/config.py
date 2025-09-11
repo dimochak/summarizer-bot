@@ -42,8 +42,7 @@ if _panbot_env:
 ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 
 KYIV = ZoneInfo(TZ)
-DB_PATH = os.getenv("DB_PATH", "/app/data/bot.db" if os.path.exists("/app/data") else "bot.db")
-
+DATABASE_URL = os.getenv("DATABASE_URL")
 LOG_FILENAME = os.path.join("/app/data", "bot.log")
 
 logger.remove()
@@ -82,7 +81,7 @@ log.info(f"TZ={TZ}")
 log.info(f"GEMINI_CHAT_IDS={GEMINI_CHAT_IDS}")
 log.info(f"OPENAI_CHAT_IDS={OPENAI_CHAT_IDS}")
 log.info(f"ALLOWED_CHAT_IDS={ALLOWED_CHAT_IDS}")
-log.info(f"DB_PATH={DB_PATH}")
+log.info(f"DATABASE_URL={DATABASE_URL}")
 log.info(f"GEMINI_MODEL_NAME={GEMINI_MODEL_NAME}")
 log.info(f"OPENAI_MODEL_NAME={OPENAI_MODEL_NAME}")
 log.info(f"PANBOT_CHAT_IDS={PANBOT_CHAT_IDS}")

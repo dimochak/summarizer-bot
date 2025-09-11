@@ -42,7 +42,7 @@ async def send_all_summaries_job(context: ContextTypes.DEFAULT_TYPE):
     for cid in configured_chat_ids:
         await send_daily_summary_to_chat(app, cid)
 
-    config.log.info("Daily summaries sent to %d chats", len(configured_chat_ids))
+    config.log.info(f"Daily summaries sent to {len(configured_chat_ids)} chats")
 
 
 def schedule_daily(app: Application):

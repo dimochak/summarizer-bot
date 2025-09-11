@@ -191,7 +191,7 @@ async def cmd_enable_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
 
     ensure_chat_record(chat)
     with closing(db()) as conn, closing(conn.cursor()) as cur:
-        cur.execute("UPDATE chats SET enabled=1 WHERE chat_id=?", (chat.id,))
+        cur.execute("UPDATE chats SET enabled=1 WHERE chat_id=%s", (chat.id,))
         conn.commit()
     await update.effective_message.reply_text(
         "✅ Daily summaries enabled for this chat."
@@ -211,7 +211,7 @@ async def cmd_disable_summaries(update: Update, context: ContextTypes.DEFAULT_TY
 
     ensure_chat_record(chat)
     with closing(db()) as conn, closing(conn.cursor()) as cur:
-        cur.execute("UPDATE chats SET enabled=0 WHERE chat_id=?", (chat.id,))
+        cur.execute("UPDATE chats SET enabled=0 WHERE chat_id=%s", (chat.id,))
         conn.commit()
     await update.effective_message.reply_text(
         "🚫 Daily summaries disabled for this chat."
@@ -231,7 +231,7 @@ async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Check if summaries are enabled in database
     with closing(db()) as conn, closing(conn.cursor()) as cur:
-        cur.execute("SELECT enabled FROM chats WHERE chat_id=?", (chat.id,))
+        cur.execute("SELECT enabled FROM chats WHERE chat_id=%s", (chat.id,))
         row = cur.fetchone()
     enabled = row and row["enabled"] == 1
 
