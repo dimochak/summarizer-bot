@@ -60,7 +60,7 @@ class PanBot:
 
         # Check for trigger words (initial contact)
         text_lower = message.text.lower()
-        bot_triggers = ["ботяндра"]
+        bot_triggers = ["ботяндра", "ботяндрік"]
 
         return any(trigger in text_lower for trigger in bot_triggers)
 
