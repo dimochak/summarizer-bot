@@ -8,15 +8,15 @@ from src.summarizer.summarizer import summarize_day
 from src.tools.utils import local_midnight_bounds
 
 
-async def send_daily_summary_to_chat(app: Application, chat_id: int):
+async def send_daily_summary_to_chat(app: Application,
+                                     chat_id: int,
+                                     start_local: datetime,
+                                     end_local: datetime):
     try:
         chat = await app.bot.get_chat(chat_id)
     except Exception as e:
         config.log.exception("Cannot get chat %s: %s", chat_id, e)
         return
-    now_local = datetime.now(tz=config.KYIV)
-    start_local, end_local = local_midnight_bounds(now_local)
-    # Always use maximum toxicity level (9) for scheduled summaries
     text = await summarize_day(chat, start_local, end_local, None, toxicity_level=9)
     if not text:
         text = f"<b>#Підсумки_дня — {start_local.date():%d.%m.%Y}</b>\n\nНемає повідомлень або не вдалося сформувати підсумок."
@@ -39,8 +39,10 @@ async def send_all_summaries_job(context: ContextTypes.DEFAULT_TYPE):
         config.log.info("No enabled and configured chats to summarize.")
         return
 
+    now_local = datetime.now(tz=config.KYIV)
+    start_local, end_local = local_midnight_bounds(now_local)
     for cid in configured_chat_ids:
-        await send_daily_summary_to_chat(app, cid)
+        await send_daily_summary_to_chat(app, cid, start_local, end_local)
 
     config.log.info(f"Daily summaries sent to {len(configured_chat_ids)} chats")
 
