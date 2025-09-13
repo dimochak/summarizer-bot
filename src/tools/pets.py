@@ -76,7 +76,6 @@ async def _detect_with_openai(image_bytes: bytes) -> tuple[str, float]:
                 ],
             }
         ],
-        temperature=0,
     )
     text = resp.choices[0].message.content or ""
     return _parse_species_json(text)

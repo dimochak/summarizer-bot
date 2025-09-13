@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 import src.tools.config as config
 from src.tools.db import db, ensure_chat_record, add_message, upsert_photo_message, get_photo_messages_between, \
-    get_pet_messages_between
+    get_pet_messages_between, upsert_pet_photo
 from src.panbot.bot import PanBot, SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
 from src.tools.pets import _download_file_bytes, detect_pet_species, PET_CONFIDENCE_THRESHOLD
@@ -350,7 +350,7 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if species in ("cat", "dog") and conf >= PET_CONFIDENCE_THRESHOLD:
             created_at_utc = utc_ts(datetime.now(timezone.utc))
             try:
-                db.upsert_pet_photo(
+                upsert_pet_photo(
                     chat_id=p["chat_id"],
                     message_id=p["message_id"],
                     ts_utc=p["ts_utc"],
@@ -360,7 +360,7 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     created_at_utc=created_at_utc,
                 )
             except Exception as e:
-                config.log.exception("upsert_pet_photo failed: %s", e)
+                config.log.exception(f"upsert_pet_photo failed: {e}")
                 # even if DB write failed, we can still display the link
             link = message_link(chat, p["message_id"])
             label = "кіт" if species == "cat" else "пес"
