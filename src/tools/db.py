@@ -35,6 +35,30 @@ CREATE TABLE IF NOT EXISTS panbot_limits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_panbot_limits_date ON panbot_limits(date);
+    
+CREATE TABLE IF NOT EXISTS pet_photos (
+    chat_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    ts_utc BIGINT NOT NULL,
+    species TEXT NOT NULL,           -- 'cat' | 'dog'
+    confidence REAL NOT NULL,        -- 0..1
+    file_id TEXT,
+    created_at_utc BIGINT NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pet_photos_chat_ts ON pet_photos(chat_id, ts_utc);
+    
+
+CREATE TABLE IF NOT EXISTS photo_messages (
+    chat_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    ts_utc BIGINT NOT NULL,
+    file_id TEXT NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_photo_messages_chat_ts ON photo_messages(chat_id, ts_utc);
 """
 
 
@@ -152,3 +176,52 @@ def is_bot_message(chat_id: int, message_id: int) -> bool:
         )
         row = cur.fetchone()
         return row is not None and row["user_id"] == config.BOT_USER_ID
+
+def upsert_pet_photo(chat_id: int, message_id: int, ts_utc: int, species: str, confidence: float, file_id: str | None, created_at_utc: int):
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """INSERT INTO pet_photos (chat_id, message_id, ts_utc, species, confidence, file_id, created_at_utc)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (chat_id, message_id)
+               DO UPDATE SET species=EXCLUDED.species,
+                             confidence=EXCLUDED.confidence,
+                             file_id=EXCLUDED.file_id,
+                             ts_utc=EXCLUDED.ts_utc,
+                             created_at_utc=EXCLUDED.created_at_utc""",
+            (chat_id, message_id, ts_utc, species, confidence, file_id, created_at_utc),
+        )
+        conn.commit()
+
+def get_pet_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -> list[dict]:
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """SELECT chat_id, message_id, ts_utc, species, confidence, file_id
+               FROM pet_photos
+               WHERE chat_id=%s AND ts_utc >= %s AND ts_utc < %s
+               ORDER BY ts_utc ASC""",
+            (chat_id, start_ts_utc, end_ts_utc),
+        )
+        return list(cur.fetchall())
+
+
+def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_id: str):
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """INSERT INTO photo_messages (chat_id, message_id, ts_utc, file_id)
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (chat_id, message_id)
+               DO UPDATE SET ts_utc=EXCLUDED.ts_utc, file_id=EXCLUDED.file_id""",
+            (chat_id, message_id, ts_utc, file_id),
+        )
+        conn.commit()
+
+def get_photo_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -> list[dict]:
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """SELECT chat_id, message_id, ts_utc, file_id
+               FROM photo_messages
+               WHERE chat_id=%s AND ts_utc >= %s AND ts_utc < %s
+               ORDER BY ts_utc ASC""",
+            (chat_id, start_ts_utc, end_ts_utc),
+        )
+        return list(cur.fetchall())

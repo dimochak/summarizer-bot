@@ -7,10 +7,12 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 import src.tools.config as config
-from src.tools.db import db, ensure_chat_record, add_message
+from src.tools.db import db, ensure_chat_record, add_message, upsert_photo_message, get_photo_messages_between, \
+    get_pet_messages_between
 from src.panbot.bot import PanBot, SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
-from src.tools.utils import utc_ts
+from src.tools.pets import _download_file_bytes, detect_pet_species, PET_CONFIDENCE_THRESHOLD
+from src.tools.utils import utc_ts, local_midnight_bounds, message_link
 
 INITIAL_PLACEHOLDERS = [
     "⏳ Окей, я подивлюся, що ви там набазікали. Тільки не очікуйте нічого геніального.",
@@ -91,6 +93,51 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Щось пішло не так з моїм сарказмом... "
                 "Можливо, ваше питання було занадто складним для мого штучного інтелекту 🤖"
             )
+
+
+async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler for any photo (image) message in chats where the bot is present.
+    Now supports both photo and image document uploads!
+    """
+    if not update.message or not update.effective_chat:
+        return
+
+    chat = update.effective_chat
+    msg = update.message
+
+    config.log.info(f"Triggered on photo: chat {chat.id} msg {msg.message_id}")
+
+    try:
+        ensure_chat_record(chat)
+    except Exception as e:
+        config.log.exception("ensure_chat_record failed: %s", e)
+
+    ts = msg.date or datetime.now(timezone.utc)
+
+    if msg.photo:
+        largest = msg.photo[-1]
+        file_id = largest.file_id
+    elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):
+        file_id = msg.document.file_id
+    else:
+        config.log.warning("on_photo -- neither photo nor image document: message_id %s", msg.message_id)
+        return
+
+    ts_utc_int = utc_ts(ts)
+
+    try:
+        upsert_photo_message(
+            chat_id=chat.id,
+            message_id=msg.message_id,
+            ts_utc=ts_utc_int,
+            file_id=file_id,
+        )
+        config.log.info("Photo/document stored for deferred detection: chat %s msg %s", chat.id, msg.message_id)
+    except Exception as e:
+        config.log.exception("upsert_photo_message failed: %s", e)
+
+
 
 async def cmd_chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -242,3 +289,86 @@ async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
     await update.effective_message.reply_text(status_text)
+
+async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Command: /find_all_pets
+    Fetch today's photos from DB, run detection on unseen ones, cache results, and return links.
+    """
+    if not update.effective_chat or not update.effective_user:
+        return
+    chat = update.effective_chat
+
+    # Compute local-day bounds, convert to UTC timestamps
+    now_local = datetime.now(config.KYIV)
+    start_local, end_local = local_midnight_bounds(now_local)
+    start_ts = utc_ts(start_local.astimezone(timezone.utc))
+    end_ts = utc_ts(end_local.astimezone(timezone.utc))
+
+    # Get all photo messages for today
+    try:
+        photos = get_photo_messages_between(chat.id, start_ts, end_ts)
+    except Exception as e:
+        config.log.exception("get_photo_messages_between failed: %s", e)
+        await update.message.reply_text("Сталася помилка при отриманні фотографій.")
+        return
+
+    if not photos:
+        await update.message.reply_text("За сьогодні фото не надсилали.")
+        return
+
+    # Get already detected pets for today (cache)
+    try:
+        detected = get_pet_messages_between(chat.id, start_ts, end_ts)
+    except Exception as e:
+        config.log.exception("get_pet_messages_between failed: %s", e)
+        detected = []
+
+    detected_by_id = {(r["chat_id"], r["message_id"]): r for r in detected}
+    results_links: list[str] = []
+
+    # First, include already detected cat/dog
+    for r in detected:
+        if r["species"] in ("cat", "dog"):
+            link = message_link(chat, r["message_id"])
+            label = "кіт" if r["species"] == "cat" else "пес"
+            results_links.append(f"• {label} ({r['confidence']:.2f}) — {link}")
+
+    # Process only photos without a cached detection
+    for p in photos:
+        key = (p["chat_id"], p["message_id"])
+        if key in detected_by_id:
+            continue  # already processed
+
+        try:
+            img_bytes = await _download_file_bytes(context, p["file_id"])
+        except Exception as e:
+            config.log.exception("photo download failed for %s: %s", key, e)
+            continue
+
+        species, conf = await detect_pet_species(img_bytes)
+        if species in ("cat", "dog") and conf >= PET_CONFIDENCE_THRESHOLD:
+            created_at_utc = utc_ts(datetime.now(timezone.utc))
+            try:
+                db.upsert_pet_photo(
+                    chat_id=p["chat_id"],
+                    message_id=p["message_id"],
+                    ts_utc=p["ts_utc"],
+                    species=species,
+                    confidence=conf,
+                    file_id=p["file_id"],
+                    created_at_utc=created_at_utc,
+                )
+            except Exception as e:
+                config.log.exception("upsert_pet_photo failed: %s", e)
+                # even if DB write failed, we can still display the link
+            link = message_link(chat, p["message_id"])
+            label = "кіт" if species == "cat" else "пес"
+            results_links.append(f"• {label} ({conf:.2f}) — {link}")
+
+    if not results_links:
+        await update.message.reply_text("За сьогодні фото котів чи собак не знайдено.")
+        return
+
+    text = "Знайдені фото за сьогодні:\n" + "\n".join(results_links)
+    await update.message.reply_text(text, disable_web_page_preview=True)
