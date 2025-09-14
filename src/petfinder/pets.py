@@ -28,8 +28,8 @@ def _build_joint_prompt(sarcasm_level: int = SARCASM_LEVEL, lang: str = "uk") ->
     )
     instr_uk = (
         "Твоє завдання: подивитися на зображення і визначити, чи є там кіт або пес. "
-        "Якщо ні — species='none'. Потім дай короткий дотепний підпис українською (1 речення),"
-        " з легкою іронією (приблизно на рівні 5 з 9), без емодзі, без форматування, без згадок про ШІ чи моделі."
+        "Якщо ні — species='none'. Потім дай короткий іронічний підпис українською (1 речення),"
+        " без емодзі, без форматування, без згадок про ШІ чи моделі."
     )
     output_spec = (
         "Відповідай СТРОГО у форматі JSON:\n"
@@ -88,6 +88,10 @@ async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = SARCA
         resp = await client.chat.completions.create(
             model=model,
             messages=[
+                {
+                    "role": "system",
+                    "content": "Ти іронічний помічник, який допомагає знаходити фото котів або собак в чаті. Завжди відповідай у форматі JSON"
+                },
                 {
                     "role": "user",
                     "content": [
