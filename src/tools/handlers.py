@@ -11,7 +11,7 @@ from src.tools.db import db, ensure_chat_record, add_message, upsert_photo_messa
     get_pet_messages_between, upsert_pet_photo
 from src.panbot.bot import PanBot, SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
-from src.tools.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
+from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
 from src.tools.utils import utc_ts, local_midnight_bounds, message_link
 
 INITIAL_PLACEHOLDERS = [
