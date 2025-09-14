@@ -11,7 +11,7 @@ from src.tools.db import db, ensure_chat_record, add_message, upsert_photo_messa
     get_pet_messages_between, upsert_pet_photo
 from src.panbot.bot import PanBot, SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
-from src.tools.pets import _download_file_bytes, detect_pet_species, PET_CONFIDENCE_THRESHOLD
+from src.tools.pets import _download_file_bytes, PET_CONFIDENCE_THRESHOLD, detect_and_caption
 from src.tools.utils import utc_ts, local_midnight_bounds, message_link
 
 INITIAL_PLACEHOLDERS = [
@@ -111,7 +111,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         ensure_chat_record(chat)
     except Exception as e:
-        config.log.exception("ensure_chat_record failed: %s", e)
+        config.log.exception(f"ensure_chat_record failed: {e}")
 
     ts = msg.date or datetime.now(timezone.utc)
 
@@ -121,7 +121,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):
         file_id = msg.document.file_id
     else:
-        config.log.warning("on_photo -- neither photo nor image document: message_id %s", msg.message_id)
+        config.log.warning(f"on_photo -- neither photo nor image document: message_id {msg.message_id}")
         return
 
     ts_utc_int = utc_ts(ts)
@@ -133,7 +133,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ts_utc=ts_utc_int,
             file_id=file_id,
         )
-        config.log.info("Photo/document stored for deferred detection: chat %s msg %s", chat.id, msg.message_id)
+        config.log.info(f"Photo/document stored for deferred detection: chat {chat.id} msg {msg.message_id}")
     except Exception as e:
         config.log.exception("upsert_photo_message failed: %s", e)
 
@@ -292,12 +292,43 @@ async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Command: /find_all_pets
+    Command: /petfinder
     Fetch today's photos from DB, run detection on unseen ones, cache results, and return links.
+    Now sends a placeholder and uses LLM to generate short ironic captions for each detected pet.
     """
     if not update.effective_chat or not update.effective_user:
         return
     chat = update.effective_chat
+
+    placeholder_texts = [
+        "⏳ Аналізую галерею: пес вже зголоднів від очікування, але тримається як чемпіон.",
+        "🧐 Збираю дос'є на хвостатих: головний підозрюваний — пес, мотив — печиво.",
+        "🔍 Перевіряю фото на наявність псячого ентузіазму — рівень зашкалює, як завжди.",
+        "🐾 Відслідковую сліди лап до миски — сліди свіжі, справа очевидна.",
+        "📦 Розпаковую пакет з «хто хороший хлопчик?» — відповідь передбачувана.",
+        "🧭 Навожу фокус на песика: він навів фокус на повідець і має плани.",
+        "🧪 Тест на «добрий пес» пройдено: показники підскакують при слові «прогулянка».",
+        "🏷️ Звіряю ярлики: «гав», «ще раз гав», «а тепер за смаколик».",
+        "🧊 Охолоджую камеру — пес надто гарячий до уваги і камери.",
+        "🎛️ Підкручую повзунки слухняності — ага, звісно, як тільки з’явиться білка.",
+        "🧩 Складаю пазл з пікселів: шматок із вухами знайшовся біля дверей.",
+        "🧮 Порахував подихи щастя — калькулятор попросив перерву.",
+        "🧱 Якщо це пес, то він — фортеця на лапах: охороняє, але впустить за смаколик.",
+        "🏛️ Передаю справу до Верховного Пес-суду: вирок — «ще одну прогулянку».",
+        "🧿 Перевіряю на магію: пес знову змусив усіх усміхнутися — підозріло ефективно.",
+        "🧪 Аналіз показує: 90% радість, 10% дуже терміново треба на вулицю.",
+        "🧰 Калібрую детектор «хороший хлопчик/дівчинка» — стрілка уперлася вправо.",
+        "🪪 Ідентифікую власника: пес володіє настроєм, ви — повідцем.",
+        "🧬 Розшифровую ДНК погляду: «я нічого не робив, але раптом печиво?»",
+        "🧭 Маршрут простий: від «хто це?» до «де мій м’яч і ще 200 фото».",
+        "🧵 Розмотую клубок доказів — кіт уже сидить зверху і судить нас поглядом.",
+        "🧩 Останній шматок пазлу зник — кіт з’їв його репутаційно.",
+        "🏷️ Котяча версія ярликів: «мур», «ігнор», «обмірковую переворот».",
+        "🧊 Камера розплавилася від котячої зневаги — аварійне охолодження ввімкнено.",
+        "🎛️ Повзунок зверхності на максимум — кіт схвалив. Мовчки.",
+        "📡 «Мяу-FM» в ефірі: ведучий знову оголошує нас обслугою.",
+    ]
+    placeholder_message = await update.message.reply_text(random.choice(placeholder_texts))
 
     # Compute local-day bounds, convert to UTC timestamps
     now_local = datetime.now(config.KYIV)
@@ -309,30 +340,49 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         photos = get_photo_messages_between(chat.id, start_ts, end_ts)
     except Exception as e:
-        config.log.exception("get_photo_messages_between failed: %s", e)
-        await update.message.reply_text("Сталася помилка при отриманні фотографій.")
+        config.log.exception(f"get_photo_messages_between failed: {e}")
+        await placeholder_message.edit_text("Сталася помилка при отриманні фотографій.")
         return
 
     if not photos:
-        await update.message.reply_text("За сьогодні фото не надсилали.")
+        await placeholder_message.edit_text("За сьогодні фото не надсилали.")
         return
 
     # Get already detected pets for today (cache)
     try:
         detected = get_pet_messages_between(chat.id, start_ts, end_ts)
     except Exception as e:
-        config.log.exception("get_pet_messages_between failed: %s", e)
+        config.log.exception(f"get_photo_messages_between failed: {e}")
         detected = []
 
     detected_by_id = {(r["chat_id"], r["message_id"]): r for r in detected}
-    results_links: list[str] = []
+    results_lines: list[str] = []
 
-    # First, include already detected cat/dog
+    # First, include already detected cat/dog with fresh caption if we can fetch the image
     for r in detected:
         if r["species"] in ("cat", "dog"):
             link = message_link(chat, r["message_id"])
-            label = "кіт" if r["species"] == "cat" else "пес"
-            results_links.append(f"• {label} ({r['confidence']:.2f}) — {link}")
+            desc = None
+            file_id = None
+            try:
+                file_id = r.get("file_id") if isinstance(r, dict) else None
+            except Exception as e:
+                config.log.exception(f"Failure: {e}")
+                pass
+
+            if file_id:
+                try:
+                    img_bytes = await _download_file_bytes(context, file_id)
+                    _, _, caption = await detect_and_caption(img_bytes, sarcasm_level=5)
+                    desc = caption.strip() or None
+                except Exception as e:
+                    config.log.exception(f'detect_and_caption failed for cached {r["chat_id"]}: {r["message_id"]}: {e}')
+
+            if not desc:
+                label = "кіт" if r["species"] == "cat" else "пес"
+                desc = f"{label} ({r['confidence']:.2f})"
+
+            results_lines.append(f"• {desc} — {link}")
 
     # Process only photos without a cached detection
     for p in photos:
@@ -343,10 +393,11 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             img_bytes = await _download_file_bytes(context, p["file_id"])
         except Exception as e:
-            config.log.exception("photo download failed for %s: %s", key, e)
+            config.log.exception(f"photo download failed for {key}: {e}")
             continue
 
-        species, conf = await detect_pet_species(img_bytes)
+        species, conf, caption = await detect_and_caption(img_bytes, sarcasm_level=5)
+
         if species in ("cat", "dog") and conf >= PET_CONFIDENCE_THRESHOLD:
             created_at_utc = utc_ts(datetime.now(timezone.utc))
             try:
@@ -361,14 +412,19 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 config.log.exception(f"upsert_pet_photo failed: {e}")
-                # even if DB write failed, we can still display the link
-            link = message_link(chat, p["message_id"])
-            label = "кіт" if species == "cat" else "пес"
-            results_links.append(f"• {label} ({conf:.2f}) — {link}")
 
-    if not results_links:
-        await update.message.reply_text("За сьогодні фото котів чи собак не знайдено.")
+            desc = (caption or "").strip()
+            if not desc:
+                label = "кіт" if species == "cat" else "пес"
+                desc = f"{label} ({conf:.2f})"
+
+            link = message_link(chat, p["message_id"])
+            results_lines.append(f"• {desc} — {link}")
+
+    if not results_lines:
+        await placeholder_message.edit_text("За сьогодні фото котів чи собак не знайдено.")
         return
 
-    text = "Знайдені фото за сьогодні:\n" + "\n".join(results_links)
-    await update.message.reply_text(text, disable_web_page_preview=True)
+    text = "Знайдені фото за сьогодні:\n" + "\n".join(results_lines)
+    await placeholder_message.edit_text(text, disable_web_page_preview=True)
+
