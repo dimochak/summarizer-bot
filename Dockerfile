@@ -3,12 +3,8 @@ FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 WORKDIR /app
 
 COPY pyproject.toml uv.lock* ./
-RUN uv sync --frozen --no-dev && \
-    uv add "telethon==1.*"
+RUN uv sync --frozen --no-dev
 
 COPY . .
 
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
-
-CMD ["./docker-entrypoint.sh"]
+CMD ["uv", "run", "python", "-m", "src.main"]
