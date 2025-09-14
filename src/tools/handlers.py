@@ -11,7 +11,7 @@ from src.tools.db import db, ensure_chat_record, add_message, upsert_photo_messa
     get_pet_messages_between, upsert_pet_photo
 from src.panbot.bot import PanBot, SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
-from src.tools.pets import _download_file_bytes, PET_CONFIDENCE_THRESHOLD, detect_and_caption
+from src.tools.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
 from src.tools.utils import utc_ts, local_midnight_bounds, message_link
 
 INITIAL_PLACEHOLDERS = [
@@ -330,13 +330,11 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     placeholder_message = await update.message.reply_text(random.choice(placeholder_texts))
 
-    # Compute local-day bounds, convert to UTC timestamps
     now_local = datetime.now(config.KYIV)
     start_local, end_local = local_midnight_bounds(now_local)
     start_ts = utc_ts(start_local.astimezone(timezone.utc))
     end_ts = utc_ts(end_local.astimezone(timezone.utc))
 
-    # Get all photo messages for today
     try:
         photos = get_photo_messages_between(chat.id, start_ts, end_ts)
     except Exception as e:
@@ -348,7 +346,6 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await placeholder_message.edit_text("За сьогодні фото не надсилали.")
         return
 
-    # Get already detected pets for today (cache)
     try:
         detected = get_pet_messages_between(chat.id, start_ts, end_ts)
     except Exception as e:
@@ -358,7 +355,6 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     detected_by_id = {(r["chat_id"], r["message_id"]): r for r in detected}
     results_lines: list[str] = []
 
-    # First, include already detected cat/dog with fresh caption if we can fetch the image
     for r in detected:
         if r["species"] in ("cat", "dog"):
             link = message_link(chat, r["message_id"])
@@ -372,9 +368,8 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if file_id:
                 try:
-                    img_bytes = await _download_file_bytes(context, file_id)
-                    _, _, caption = await detect_and_caption(img_bytes, sarcasm_level=5)
-                    desc = caption.strip() or None
+                    _, _, caption = await detect_and_caption_by_file_id(context, file_id, sarcasm_level=5)
+                    desc = (caption or "").strip() or None
                 except Exception as e:
                     config.log.exception(f'detect_and_caption failed for cached {r["chat_id"]}: {r["message_id"]}: {e}')
 
@@ -384,19 +379,16 @@ async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             results_lines.append(f"• {desc} — {link}")
 
-    # Process only photos without a cached detection
     for p in photos:
         key = (p["chat_id"], p["message_id"])
         if key in detected_by_id:
             continue  # already processed
 
         try:
-            img_bytes = await _download_file_bytes(context, p["file_id"])
+            species, conf, caption = await detect_and_caption_by_file_id(context, p["file_id"], sarcasm_level=5)
         except Exception as e:
-            config.log.exception(f"photo download failed for {key}: {e}")
+            config.log.exception(f"photo detection failed for {key}: {e}")
             continue
-
-        species, conf, caption = await detect_and_caption(img_bytes, sarcasm_level=5)
 
         if species in ("cat", "dog") and conf >= PET_CONFIDENCE_THRESHOLD:
             created_at_utc = utc_ts(datetime.now(timezone.utc))
