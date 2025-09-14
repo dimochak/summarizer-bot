@@ -8,13 +8,13 @@ from src.tools import config
 
 # Configuration
 PET_CONFIDENCE_THRESHOLD = float(os.getenv("PET_CONFIDENCE_THRESHOLD", "0.6"))
-
+SARCASM_LEVEL = 7
 
 def _openai_enabled() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
-def _build_joint_prompt(sarcasm_level: int = 5, lang: str = "uk") -> str:
+def _build_joint_prompt(sarcasm_level: int = SARCASM_LEVEL, lang: str = "uk") -> str:
     """
     Joint prompt for pet detection + caption, single JSON response.
     Sarcasm scale: 0 (no sarcasm) ... 9 (toxic trolling). We aim for ~5 by default.
@@ -59,7 +59,7 @@ def _parse_joint_json(text: str) -> tuple[str, float, str]:
         return "none", 0.0, ""
 
 
-async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = 5) -> tuple[str, float, str]:
+async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = SARCASM_LEVEL) -> tuple[str, float, str]:
     """
     Detects and generates a sarcastic caption from the given image URL.
 
@@ -81,7 +81,7 @@ async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = 5) ->
         generic_caption = "Фото ніби натякає, що люди тут раби для тварин."
         return "none", 0.0, generic_caption
 
-    model = "gpt-4o"
+    model = "gpt-5-nano"
     prompt = _build_joint_prompt(sarcasm_level=sarcasm_level, lang="uk")
 
     async with AsyncOpenAI() as client:
@@ -103,7 +103,8 @@ async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = 5) ->
     return _parse_joint_json(text)
 
 
-async def detect_and_caption_by_file_id(context: ContextTypes.DEFAULT_TYPE, file_id: str, sarcasm_level: int = 5) -> tuple[str, float, str]:
+async def detect_and_caption_by_file_id(context: ContextTypes.DEFAULT_TYPE, file_id: str,
+                                        sarcasm_level: int = SARCASM_LEVEL) -> tuple[str, float, str]:
     """
     Resolves Telegram file_id to a direct file URL and runs detection via URL (no base64 inlining).
     """
