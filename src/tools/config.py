@@ -61,19 +61,39 @@ logger.add(
     enqueue=True
 )
 
+# Also duplicate logs to stderr/console, not only file
+logger.add(
+    lambda msg: print(msg, end=''),  # just use print (or sys.stderr as needed)
+    level="INFO",
+    format=(
+        "<green>[{time:YYYY-MM-DD HH:mm:ss}]</green> "
+        "<level>{level: <8}</level> "
+        "<cyan>{name}:{function}:{line}</cyan>: "
+        "<level>{message}</level>"
+    ),
+    enqueue=True
+)
+
 class InterceptHandler(logging.Handler):
     def emit(self, record):
-        if record.levelno >= logging.WARNING:
-            try:
-                level = logger.level(record.levelname).name
-            except ValueError:
-                level = record.levelno
-            logger.opt(exception=record.exc_info).log(
-                level, record.getMessage()
-            )
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        logger.opt(exception=record.exc_info).log(
+            level, record.getMessage()
+        )
 
-logging.basicConfig(handlers=[InterceptHandler()], level=logging.WARNING, force=True)
+logging.basicConfig(handlers=[InterceptHandler()], level=logging.NOTSET, force=True)
 logging.captureWarnings(True)
+
+class InfoFilter(logging.Filter):
+    def filter(self, record):
+        return record.levelno != logging.INFO
+
+
+httpx_logger = logging.getLogger("httpx")
+httpx_logger.addFilter(InfoFilter())
 
 log = logger
 log.info("Configuration loaded.")
