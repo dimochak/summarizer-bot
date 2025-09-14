@@ -1,7 +1,10 @@
 import re
 from datetime import datetime
 from contextlib import closing
+from typing import Any
+
 import orjson as json
+import random
 
 import google.generativeai as genai
 import tiktoken
@@ -78,7 +81,7 @@ class PanBot:
         chat_id = message.chat.id
         current_time = int(message.date.timestamp())
 
-        # Look back 10 minutes for context
+        # Look back 12 hours for context
         lookback_seconds = 60 * 60 * 12
         start_time = current_time - lookback_seconds
 
@@ -126,7 +129,6 @@ class PanBot:
         chat_id = message.chat.id
         today = datetime.now(tz=config.KYIV).date().isoformat()
 
-        # Check current usage
         current_usage = get_panbot_usage(user_id, chat_id, today)
         if current_usage >= self.daily_limit:
             raise SarcasmLimitExceeded(
@@ -134,10 +136,8 @@ class PanBot:
                 f"Спробуйте завтра, можливо, до того часу ваші питання стануть розумнішими! 🙄"
             )
 
-        # Increment usage
         new_count = increment_panbot_usage(user_id, chat_id, today)
 
-        # Generate sarcastic response
         response = await self._generate_sarcastic_response(message)
 
         remaining = self.daily_limit - new_count
@@ -176,7 +176,7 @@ class PanBot:
                 raise ValueError("No AI provider available")
 
 
-    async def _generate_sarcastic_response(self, message) -> str:
+    async def _generate_sarcastic_response(self, message) -> Any:
             """Generate a sarcastic response using the appropriate AI provider"""
             context = self.build_conversation_prompt(message)
             user_message = message.text or ""
@@ -269,6 +269,5 @@ class PanBot:
                     "Схоже, навіть комп'ютери можуть втомлюватися від людської нелогічності 😴",
                     "Error 404: Сарказм не знайдено. Спробуйте розумніше питання 🔍"
                 ]
-                import random
                 return random.choice(fallback_responses)
 

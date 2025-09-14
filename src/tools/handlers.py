@@ -7,8 +7,15 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 import src.tools.config as config
-from src.tools.db import db, ensure_chat_record, add_message, upsert_photo_message, get_photo_messages_between, \
-    get_pet_messages_between, upsert_pet_photo
+from src.tools.db import (
+    db,
+    ensure_chat_record,
+    add_message,
+    upsert_photo_message,
+    get_photo_messages_between,
+    get_pet_messages_between,
+    upsert_pet_photo
+)
 from src.panbot.bot import PanBot, SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
 from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD

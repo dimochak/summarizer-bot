@@ -4,12 +4,13 @@ import src.tools.config as config
 from src.tools.db import init_db
 from src.tools.handlers import (
     on_message,
+    on_photo,
     cmd_chatid,
     cmd_summary_now,
     cmd_enable_summaries,
     cmd_disable_summaries,
     cmd_status_summaries,
-    cmd_find_all_pets, on_photo,
+    cmd_find_all_pets,
 )
 from src.tools.scheduler import schedule_daily
 
