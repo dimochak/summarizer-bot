@@ -90,7 +90,7 @@ async def detect_and_caption_with_openai(image_bytes: bytes, sarcasm_level: int 
     """
     b64 = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:image/jpeg;base64,{b64}"
-    model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+    model = "gpt-4o"
     prompt = _build_joint_prompt(sarcasm_level=sarcasm_level, lang="uk")
 
     async with AsyncOpenAI() as client:
