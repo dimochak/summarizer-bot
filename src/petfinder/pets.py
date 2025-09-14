@@ -81,7 +81,7 @@ async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = SARCA
         generic_caption = "Фото ніби натякає, що люди тут раби для тварин."
         return "none", 0.0, generic_caption
 
-    model = "gpt-5-nano"
+    model = "gpt-4o-mini"
     prompt = _build_joint_prompt(sarcasm_level=sarcasm_level, lang="uk")
 
     async with AsyncOpenAI() as client:
