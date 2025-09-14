@@ -1,8 +1,5 @@
-import base64
-import io
 import os
 
-from telegram import Update
 from telegram.ext import ContextTypes
 from openai import AsyncOpenAI
 import json
@@ -12,28 +9,9 @@ from src.tools import config
 # Configuration
 PET_CONFIDENCE_THRESHOLD = float(os.getenv("PET_CONFIDENCE_THRESHOLD", "0.6"))
 
-# Simple provider switch: prefer OpenAI if key present
+
 def _openai_enabled() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
-
-async def _download_photo_bytes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> tuple[bytes, str | None]:
-    """
-    Returns (bytes, file_id) for the largest photo in the message.
-    """
-    if not update.message or not update.message.photo:
-        return b"", None
-    size = update.message.photo[-1]
-    file = await context.bot.get_file(size.file_id)
-    bio = io.BytesIO()
-    await file.download_to_memory(out=bio)
-    return bio.getvalue(), size.file_id
-
-# New: download by file_id (used in on-demand detection)
-async def _download_file_bytes(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> bytes:
-    file = await context.bot.get_file(file_id)
-    bio = io.BytesIO()
-    await file.download_to_memory(out=bio)
-    return bio.getvalue()
 
 
 def _build_joint_prompt(sarcasm_level: int = 5, lang: str = "uk") -> str:
@@ -81,15 +59,28 @@ def _parse_joint_json(text: str) -> tuple[str, float, str]:
         return "none", 0.0, ""
 
 
-async def detect_and_caption_with_openai(image_bytes: bytes, sarcasm_level: int = 5) -> tuple[str, float, str]:
+async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = 5) -> tuple[str, float, str]:
     """
-    Single-call OpenAI flow: returns (species, confidence, caption).
-    - species: 'cat' | 'dog' | 'none'
-    - confidence: 0..1
-    - caption: short Ukrainian sentence, sarcasm ~ level 5
+    Detects and generates a sarcastic caption from the given image URL.
+
+    The function processes an input image URL to generate a sarcastic caption using
+    an AI language model. The level of sarcasm can be controlled via the
+    `sarcasm_level` parameter. If the AI backend is disabled, it will return a generic
+    caption as a fallback. The result is returned as a tuple containing the generated
+    caption type, a confidence score, and the actual caption.
+
+    :param image_url: The URL of the image to be processed.
+    :param sarcasm_level: An integer representing the level of sarcasm in the
+        generated caption. Default is 5.
+    :return: A tuple consisting of:
+        - The type of caption as a string (e.g., "sarcastic").
+        - The confidence score as a float between 0 and 1.
+        - The generated sarcastic caption as a string.
     """
-    b64 = base64.b64encode(image_bytes).decode("ascii")
-    data_url = f"data:image/jpeg;base64,{b64}"
+    if not _openai_enabled():
+        generic_caption = "Фото ніби натякає, що люди тут раби для тварин."
+        return "none", 0.0, generic_caption
+
     model = "gpt-4o"
     prompt = _build_joint_prompt(sarcasm_level=sarcasm_level, lang="uk")
 
@@ -101,7 +92,7 @@ async def detect_and_caption_with_openai(image_bytes: bytes, sarcasm_level: int 
                     "role": "user",
                     "content": [
                         {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "image_url", "image_url": {"url": image_url}},
                     ],
                 }
             ],
@@ -112,12 +103,15 @@ async def detect_and_caption_with_openai(image_bytes: bytes, sarcasm_level: int 
     return _parse_joint_json(text)
 
 
-async def detect_and_caption(image_bytes: bytes, sarcasm_level: int = 5) -> tuple[str, float, str]:
+async def detect_and_caption_by_file_id(context: ContextTypes.DEFAULT_TYPE, file_id: str, sarcasm_level: int = 5) -> tuple[str, float, str]:
     """
-    Wrapper to do pet detection + caption in one go if OpenAI is available.
-    Fallback: returns no detection + a generic slightly sarcastic caption.
+    Resolves Telegram file_id to a direct file URL and runs detection via URL (no base64 inlining).
     """
-    if _openai_enabled():
-        return await detect_and_caption_with_openai(image_bytes, sarcasm_level=sarcasm_level)
-    generic_caption = "Фото ніби натякає, що люди тут раби для тварин."
-    return "none", 0.0, generic_caption
+    try:
+        file = await context.bot.get_file(file_id)
+        image_url = file.file_path
+    except Exception as e:
+        config.log.exception(f"Failed to resolve file_id to URL: {e}")
+        return "none", 0.0, ""
+
+    return await detect_and_caption_from_url(image_url, sarcasm_level=sarcasm_level)
