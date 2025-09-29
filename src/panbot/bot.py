@@ -1,7 +1,8 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import closing
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import orjson as json
 import random
@@ -82,19 +83,19 @@ class PanBot:
         current_time = int(message.date.timestamp())
 
         # Look back 12 hours for context
-        lookback_seconds = 60 * 60 * 12
+        lookback_seconds = 60 * 60 * 48
         start_time = current_time - lookback_seconds
 
         with closing(db()) as conn, closing(conn.cursor()) as cur:
             # Get recent messages, excluding the current one
             cur.execute(
-                """SELECT text, full_name, username
+                """SELECT text, full_name, username, ts_utc
                    FROM messages
                    WHERE chat_id = %s
                      AND ts_utc >= %s
                      AND ts_utc < %s
                      AND message_id!=%s
-                   ORDER BY ts_utc DESC LIMIT 1000""",
+                   ORDER BY ts_utc DESC LIMIT 5000""",
                 (chat_id, start_time, current_time, message.message_id)
             )
             rows = cur.fetchall()
@@ -107,17 +108,20 @@ class PanBot:
         for row in rows[::-1]:  # Reverse to chronological order
             name = row["full_name"] or row["username"] or "Учасник"
             text = (row["text"] or "").strip()
+            dt_utc = datetime.fromtimestamp(row["ts_utc"], tz=timezone.utc)
+            date_kyiv = dt_utc.astimezone(ZoneInfo("Europe/Kyiv")).date()
             if not text:
                 continue
             text = text[:200]
-            line = f"{name}: {text}"
+            line = f"[{date_kyiv}]{name}: {text}"
             line_tokens = len(_encoder.encode(line))
             if used_tokens + line_tokens > max_tokens:
                 break
             context_lines.append(line)
             used_tokens += line_tokens
-
-        return "\n".join(context_lines)
+        result = "\n".join(context_lines)
+        config.log.info(f'Context lines: {result}')
+        return result
 
 
     async def process_reply(self, message):
@@ -182,6 +186,16 @@ class PanBot:
             user_message = message.text or ""
             user_name = message.from_user.full_name if message.from_user else "Невідомий пасажир"
 
+            try:
+                if getattr(message, "reply_to_message", None):
+                    quoted = message.quote.text or ""
+                else:
+                    quoted = ""
+            except Exception:
+                quoted = ""
+
+            quoted_block = f'\n\nЦитований фрагмент бота (додатковий контекст):\n"{quoted}"' if quoted else ""
+
             provider = self._determine_ai_provider(message.chat.id)
 
             prompt = f"""Ти — розумний український чат-бот, який адаптує свій стиль спілкування залежно від тону співрозмовника.
@@ -222,7 +236,7 @@ class PanBot:
             - Відповідай стисло, у відповіді не давай оцінок про тон спілкування з тобою.
             
             Контекст попередніх повідомлень:
-            {context}
+            {context}{quoted_block}
             
             Користувач {user_name} написав: {user_message}
             
