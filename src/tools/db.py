@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS photo_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_photo_messages_chat_ts ON photo_messages(chat_id, ts_utc);
+    
+CREATE TABLE IF NOT EXISTS user_traits (
+    user_id BIGINT PRIMARY KEY,
+    traits_json JSONB NOT NULL,
+    updated_at_utc BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_traits_updated ON user_traits(updated_at_utc);
 """
 
 
@@ -223,5 +231,39 @@ def get_photo_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int)
                WHERE chat_id=%s AND ts_utc >= %s AND ts_utc < %s
                ORDER BY ts_utc ASC""",
             (chat_id, start_ts_utc, end_ts_utc),
+        )
+        return list(cur.fetchall())
+
+
+def upsert_user_traits(user_id: int, traits_json: dict, updated_at_utc: int):
+    import json as _json
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """INSERT INTO user_traits (user_id, traits_json, updated_at_utc)
+               VALUES (%s, %s::jsonb, %s)
+               ON CONFLICT (user_id)
+               DO UPDATE SET traits_json=EXCLUDED.traits_json,
+                             updated_at_utc=EXCLUDED.updated_at_utc""",
+            (user_id, _json.dumps(traits_json), updated_at_utc),
+        )
+        conn.commit()
+
+
+def get_user_traits(user_id: int) -> dict | None:
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute("SELECT traits_json FROM user_traits WHERE user_id=%s", (user_id,))
+        row = cur.fetchone()
+        return row["traits_json"] if row else None
+
+
+def _get_last_user_messages(user_id: int, limit: int = 500) -> list[dict]:
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """SELECT chat_id, message_id, ts_utc, username, full_name, text
+               FROM messages
+               WHERE user_id=%s AND text IS NOT NULL
+               ORDER BY ts_utc DESC
+               LIMIT %s""",
+            (user_id, limit),
         )
         return list(cur.fetchall())

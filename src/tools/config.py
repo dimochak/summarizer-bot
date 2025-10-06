@@ -45,6 +45,8 @@ KYIV = ZoneInfo(TZ)
 DATABASE_URL = os.getenv("DATABASE_URL")
 LOG_FILENAME = os.path.join("/app/data", "bot.log")
 
+# LOG_FILENAME = 'bot.log'
+
 logger.remove()
 logger.add(
     LOG_FILENAME,

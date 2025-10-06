@@ -17,7 +17,8 @@ from src.tools.db import (
     get_panbot_usage,
     increment_panbot_usage,
     reset_panbot_usage_for_date,
-    is_bot_message
+    is_bot_message,
+    get_user_traits
 )
 
 try:
@@ -185,6 +186,7 @@ class PanBot:
             context = self.build_conversation_prompt(message)
             user_message = message.text or ""
             user_name = message.from_user.full_name if message.from_user else "Невідомий пасажир"
+            user_id = message.from_user.id if message.from_user else None
 
             try:
                 if getattr(message, "reply_to_message", None):
@@ -195,6 +197,26 @@ class PanBot:
                 quoted = ""
 
             quoted_block = f'\n\nЦитований фрагмент бота (додатковий контекст):\n"{quoted}"' if quoted else ""
+
+            # --- New: pull user traits and embed into prompt ---
+            traits = get_user_traits(user_id) if user_id else None
+            if traits:
+                # Стислий рядок з ключових полів
+                tone = traits.get("tone") or {}
+                style = traits.get("style") or {}
+                lang = traits.get("language") or {}
+                topics = traits.get("topics") or []
+                topics_txt = ", ".join(t.get("name") for t in topics if isinstance(t, dict) and t.get("name"))[:200]
+                traits_line = (
+                    f'UserTraits: summary="{traits.get("summary", "")}", '
+                    f'topics="{topics_txt}", '
+                    f'tone(f={tone.get("friendliness", 0)}, s={tone.get("sarcasm", 0)}, tox={tone.get("toxicity", 0)}), '
+                    f'style(verb={style.get("verbosity", 0)}, emoji={style.get("emoji_usage", 0)}), '
+                    f'lang="{lang.get("primary", "mixed")}"'
+                )
+                traits_block = f"\n\n{traits_line}\nВраховуй ці риси користувача при формуванні відповіді."
+            else:
+                traits_block = ""
 
             provider = self._determine_ai_provider(message.chat.id)
 
@@ -236,7 +258,7 @@ class PanBot:
             - Відповідай стисло, у відповіді не давай оцінок про тон спілкування з тобою.
             
             Контекст попередніх повідомлень:
-            {context}{quoted_block}
+            {context}{quoted_block}{traits_block}
             
             Користувач {user_name} написав: {user_message}
             
