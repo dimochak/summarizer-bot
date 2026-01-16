@@ -23,7 +23,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_id, ts_utc);
 CREATE TABLE IF NOT EXISTS chats (
     chat_id BIGINT PRIMARY KEY,
     title TEXT,
-    enabled INTEGER NOT NULL DEFAULT 0
+    enabled INTEGER NOT NULL DEFAULT 0,
+    custom_role TEXT
 );
 
 CREATE TABLE IF NOT EXISTS panbot_limits (
@@ -77,6 +78,13 @@ def db():
 
 def init_db():
     with closing(db()) as conn, conn, closing(conn.cursor()) as cur:
+        # Migration: add custom_role column if it doesn't exist
+        try:
+            cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS custom_role TEXT")
+            conn.commit()
+        except Exception:
+            pass
+
         statements = [stmt.strip() for stmt in SCHEMA.split(';') if stmt.strip()]
         for stmt in statements:
             cur.execute(stmt)
@@ -185,6 +193,16 @@ def is_bot_message(chat_id: int, message_id: int) -> bool:
         row = cur.fetchone()
         return row is not None and row["user_id"] == config.BOT_USER_ID
 
+def get_message_by_id(chat_id: int, message_id: int) -> dict | None:
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            """SELECT text, full_name, username, ts_utc, user_id, message_id, reply_to_message_id
+               FROM messages
+               WHERE chat_id = %s AND message_id = %s""",
+            (chat_id, message_id),
+        )
+        return cur.fetchone()
+
 def upsert_pet_photo(chat_id: int, message_id: int, ts_utc: int, species: str, confidence: float, file_id: str | None, created_at_utc: int):
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute(
@@ -245,6 +263,22 @@ def upsert_user_traits(user_id: int, traits_json: dict, updated_at_utc: int):
                DO UPDATE SET traits_json=EXCLUDED.traits_json,
                              updated_at_utc=EXCLUDED.updated_at_utc""",
             (user_id, _json.dumps(traits_json), updated_at_utc),
+        )
+        conn.commit()
+
+
+def get_custom_role(chat_id: int) -> str | None:
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute("SELECT custom_role FROM chats WHERE chat_id=%s", (chat_id,))
+        row = cur.fetchone()
+        return row["custom_role"] if row else None
+
+
+def set_custom_role(chat_id: int, role: str | None):
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        cur.execute(
+            "UPDATE chats SET custom_role=%s WHERE chat_id=%s",
+            (role, chat_id),
         )
         conn.commit()
 

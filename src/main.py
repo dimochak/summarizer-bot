@@ -15,10 +15,15 @@ from src.tools.handlers import (
 from src.tools.scheduler import schedule_daily
 
 
+async def post_init(application):
+    bot_info = await application.bot.get_me()
+    config.BOT_USER_ID = bot_info.id
+    config.log.info(f"Bot initialized with ID: {config.BOT_USER_ID}")
+
 def main():
     init_db()
 
-    app = ApplicationBuilder().token(config.TELEGRAM_BOT_TOKEN).build()
+    app = ApplicationBuilder().token(config.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(
         MessageHandler(~filters.StatusUpdate.ALL &

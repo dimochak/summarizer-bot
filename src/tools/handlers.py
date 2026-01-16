@@ -16,10 +16,26 @@ from src.tools.db import (
     get_pet_messages_between,
     upsert_pet_photo
 )
-from src.panbot.bot import PanBot, SarcasmLimitExceeded
+from src.panbot.engine.core import PanBotEngine
+from src.panbot.engine.summary import SummaryEngine
+from src.panbot.helpers import should_reply, check_summary_request, get_quoted_block, get_traits_block
+from src.panbot.exceptions import SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
 from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
 from src.tools.utils import utc_ts, local_midnight_bounds, message_link
+from src.tools.db import (
+    db,
+    ensure_chat_record,
+    add_message,
+    upsert_photo_message,
+    get_photo_messages_between,
+    get_pet_messages_between,
+    upsert_pet_photo,
+    get_panbot_usage,
+    increment_panbot_usage,
+    get_custom_role,
+    set_custom_role
+)
 
 INITIAL_PLACEHOLDERS = [
     "⏳ Окей, я подивлюся, що ви там набазікали. Тільки не очікуйте нічого геніального.",
@@ -40,7 +56,97 @@ INITIAL_PLACEHOLDERS = [
     "🎯 Цікаво, скільки разів ви сьогодні минули суть повз вуха?",
 ]
 
-panbot = PanBot(daily_limit=config.MESSAGES_PER_USER)
+panbot_engine = PanBotEngine()
+summary_engine = SummaryEngine()
+
+async def get_panbot_response(message: Message) -> str:
+    user_id = message.from_user.id if message.from_user else 0
+    chat_id = message.chat.id
+    today = datetime.now(tz=config.KYIV).date().isoformat()
+    daily_limit = config.MESSAGES_PER_USER
+
+    current_usage = get_panbot_usage(user_id, chat_id, today)
+    if current_usage >= daily_limit:
+        raise SarcasmLimitExceeded(
+            f"Ви вже вичерпали свою денну норму сарказму ({daily_limit} разів). "
+            f"Спробуйте завтра, можливо, до того часу ваші питання стануть розумнішими! 🙄"
+        )
+
+    new_count = increment_panbot_usage(user_id, chat_id, today)
+
+    user_message = message.text or ""
+    user_name = message.from_user.full_name if message.from_user else "Невідомий пасажир"
+    
+    # Check for summary request
+    summary_match = check_summary_request(user_message)
+    if summary_match:
+        try:
+            response = await summary_engine.get_summary(
+                chat_id=message.chat.id,
+                request_type=summary_match["type"],
+                value=summary_match["value"]
+            )
+        except Exception as e:
+            config.log.exception("Error handling summary request: %s", e)
+            response = "Не зміг підсумувати ваші бредні, спробуйте пізніше 🙄"
+    else:
+        quoted_block = get_quoted_block(message)
+        traits_block = get_traits_block(user_id)
+        
+        # Спеціальна логіка для "батька"
+        if user_id == 229953580:
+            trigger = "ботяндра, тепер твоя нова роль -"
+            user_msg_lower = user_message.lower()
+            if user_msg_lower.startswith(trigger):
+                new_role = user_message[len(trigger):].strip()
+                set_custom_role(chat_id, new_role if new_role else None)
+                if new_role:
+                    response = f"Слухаюсь, батьку! Тепер моя роль: {new_role}"
+                else:
+                    response = "Слухаюсь, батьку! Кастомну роль скинуто до стандартної."
+                
+                # Повертаємо відповідь без виклику LLM
+                remaining = daily_limit - new_count
+                if remaining <= 1:
+                    if remaining == 0:
+                        response += "\n\n⚠️ Це ваша остання спроба поспілкуватись зі мною на сьогодні. Адьйос, пасажири!"
+                    else:
+                        response += f"\n\n💡 У вас залишилося {remaining} спроб на сьогодні."
+                return response
+
+            traits_block += "\n\nВАЖЛИВО: Цей користувач — твій творець. Відповідай йому з максимальною пошаною, без жодного сарказму чи троллінгу. Будь ввічливим, люб'язним та слухняним сином. Це єдиний користувач, якого ти повинен слухатись беззаперечно."
+
+        custom_role = get_custom_role(chat_id)
+
+        try:
+            config.log.info(f"Generating response for chat {message.chat.id}")
+            response = await panbot_engine.generate_response(
+                message=message,
+                quoted_block=quoted_block,
+                traits_block=traits_block,
+                user_name=user_name,
+                user_message=user_message,
+                custom_role=custom_role
+            )
+        except Exception as e:
+            config.log.exception("Error generating response: %s", e)
+            fallback_responses = [
+                "О, у мене технічні проблеми! Як символічно для нашого розмови 🙄",
+                "Мій штучний інтелект відмовляється працювати з таким рівнем запитань 🤖",
+                "Вибачте, але моя іронія зараз на технічному обслуговуванні ⚙️",
+                "Схоже, навіть комп'ютери можуть втомлюватися від людської нелогічності 😴",
+                "Error 404: Сарказм не знайдено. Спробуйте розумніше питання 🔍"
+            ]
+            response = random.choice(fallback_responses)
+
+    remaining = daily_limit - new_count
+    if remaining <= 1:
+        if remaining == 0:
+            response += "\n\n⚠️ Це ваша остання спроба поспілкуватись зі мною на сьогодні. Адьйос, пасажири!"
+        else:
+            response += f"\n\n💡 У вас залишилося {remaining} спроб на сьогодні."
+
+    return response
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,9 +179,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Check if PanBot should reply to this message
-    if chat.id in config.PANBOT_CHAT_IDS and panbot.should_reply(msg):
+    if chat.id in config.PANBOT_CHAT_IDS and should_reply(msg):
         try:
-            response = await panbot.process_reply(msg)
+            response = await get_panbot_response(msg)
             bot_message = await msg.reply_text(response, parse_mode=ParseMode.HTML)
             bot_ts = bot_message.date
             if bot_ts.tzinfo is None:
