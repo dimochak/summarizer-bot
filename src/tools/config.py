@@ -43,7 +43,7 @@ ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 
 KYIV = ZoneInfo(TZ)
 DATABASE_URL = os.getenv("DATABASE_URL")
-LOG_FILENAME = os.path.join("/app/data", "bot.log")
+LOG_FILENAME = os.getenv("LOG_FILENAME", "bot.log")
 
 # LOG_FILENAME = 'bot.log'
 

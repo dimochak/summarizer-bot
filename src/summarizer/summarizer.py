@@ -169,18 +169,18 @@ def build_messages_snippet(
         )
         time = ts.strftime("%H:%M")
         name = (
-            r["full_name"]
-            or (r["username"] and f"@{r['username']}")
-            or f"id{r['user_id']}"
+            r.get("full_name")
+            or (r.get("username") and f"@{r['username']}")
+            or f"id{r.get('user_id', 'unknown')}"
         )
-        frag = (r["text"] or "").replace("\n", " ").strip()
+        frag = (r.get("text") or "").replace("\n", " ").strip()
         if len(frag) > 500:
             frag = frag[:500] + "…"
-        reply = (
-            f", reply_to={r['reply_to_message_id']}" if r["reply_to_message_id"] else ""
-        )
+        
+        reply_id = r.get("reply_to_message_id")
+        reply = f", reply_to={reply_id}" if reply_id else ""
 
-        line = f"[{time}] {name} (uid={r['user_id']}, mid={r['message_id']}{reply}): {frag}"
+        line = f"[{time}] {name} (uid={r.get('user_id', 'unknown')}, mid={r.get('message_id', 'unknown')}{reply}): {frag}"
 
         line_tokens = len(_encoder.encode(line))
         if current_tokens + line_tokens > tokens_remaining:
