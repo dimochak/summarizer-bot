@@ -43,6 +43,7 @@ ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 
 KYIV = ZoneInfo(TZ)
 DATABASE_URL = os.getenv("DATABASE_URL")
+DB_RETENTION_DAYS = int(os.getenv("DB_RETENTION_DAYS", "30"))
 LOG_FILENAME = os.getenv("LOG_FILENAME", "bot.log")
 
 # LOG_FILENAME = 'bot.log'

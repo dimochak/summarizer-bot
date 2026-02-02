@@ -3,7 +3,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, Application
 
 import src.tools.config as config
-from src.tools.db import get_enabled_chat_ids
+from src.tools.db import get_enabled_chat_ids, cleanup_old_data
 from src.summarizer.summarizer import summarize_day
 from src.tools.utils import local_midnight_bounds
 
@@ -47,6 +47,11 @@ async def send_all_summaries_job(context: ContextTypes.DEFAULT_TYPE):
     config.log.info(f"Daily summaries sent to {len(configured_chat_ids)} chats")
 
 
+async def cleanup_db_job(context: ContextTypes.DEFAULT_TYPE):
+    config.log.info("Starting scheduled database cleanup...")
+    cleanup_old_data(config.DB_RETENTION_DAYS)
+
+
 def schedule_daily(app: Application):
     hour = 23
     minute = 59
@@ -57,3 +62,12 @@ def schedule_daily(app: Application):
         name="daily_summary_all",
     )
     config.log.info(f"Daily job scheduled for {hour}:{minute}, {config.TZ}")
+
+    # Schedule database cleanup at 04:00 AM Kyiv time
+    cleanup_hour = 4
+    app.job_queue.run_daily(
+        cleanup_db_job,
+        time=dtime(cleanup_hour, 0, tzinfo=config.KYIV),
+        name="db_cleanup"
+    )
+    config.log.info(f"Database cleanup job scheduled for {cleanup_hour:02d}:00, {config.TZ}")

@@ -2,6 +2,7 @@ from contextlib import closing
 import psycopg
 from psycopg.rows import dict_row
 from telegram import Chat
+from datetime import datetime, timedelta
 
 import src.tools.config as config
 
@@ -301,3 +302,37 @@ def _get_last_user_messages(user_id: int, limit: int = 500) -> list[dict]:
             (user_id, limit),
         )
         return list(cur.fetchall())
+
+
+def cleanup_old_data(days: int):
+    now_kyiv = datetime.now(config.KYIV)
+    cutoff_dt = now_kyiv - timedelta(days=days)
+    
+    cutoff_ts = int(cutoff_dt.timestamp())
+    # date in panbot_limits is stored as TEXT 'YYYY-MM-DD'
+    cutoff_date = cutoff_dt.strftime("%Y-%m-%d")
+
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        # Cleanup messages
+        cur.execute("DELETE FROM messages WHERE ts_utc < %s", (cutoff_ts,))
+        deleted_messages = cur.rowcount
+
+        # Cleanup pet photos
+        cur.execute("DELETE FROM pet_photos WHERE ts_utc < %s", (cutoff_ts,))
+        deleted_pets = cur.rowcount
+
+        # Cleanup photo messages
+        cur.execute("DELETE FROM photo_messages WHERE ts_utc < %s", (cutoff_ts,))
+        deleted_photos = cur.rowcount
+
+        # Cleanup panbot limits
+        cur.execute("DELETE FROM panbot_limits WHERE date < %s", (cutoff_date,))
+        deleted_limits = cur.rowcount
+
+        conn.commit()
+
+    config.log.info(
+        f"Database cleanup completed (retention: {days} days). "
+        f"Deleted: {deleted_messages} messages, {deleted_pets} pet photos, "
+        f"{deleted_photos} photo messages, {deleted_limits} limit records."
+    )

@@ -173,7 +173,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (msg.from_user and msg.from_user.id) or None,
         (msg.from_user and msg.from_user.username) or None,
         (msg.from_user and msg.from_user.full_name) or None,
-        text,
+        str(text) if text is not None else None,
         (msg.reply_to_message and msg.reply_to_message.message_id) or None,
         utc_ts(ts.astimezone(timezone.utc)),
     )
@@ -182,7 +182,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.id in config.PANBOT_CHAT_IDS and should_reply(msg):
         try:
             response = await get_panbot_response(msg)
-            bot_message = await msg.reply_text(response, parse_mode=ParseMode.HTML)
+            # Ensure response is a string before replying and storing
+            response_str = str(response) if response is not None else ""
+            bot_message = await msg.reply_text(response_str, parse_mode=ParseMode.HTML)
             bot_ts = bot_message.date
             if bot_ts.tzinfo is None:
                 bot_ts = bot_ts.replace(tzinfo=timezone.utc)
@@ -192,7 +194,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 config.BOT_USER_ID,
                 None,
                 "PanBot",
-                response,
+                response_str,
                 msg.message_id,
                 utc_ts(bot_ts.astimezone(timezone.utc)),
             )
