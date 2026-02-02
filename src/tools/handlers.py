@@ -56,7 +56,7 @@ INITIAL_PLACEHOLDERS = [
     "🎯 Цікаво, скільки разів ви сьогодні минули суть повз вуха?",
 ]
 
-panbot_engine = PanBotEngine()
+panbot_engine = PanBotEngine(debug=config.LANGCHAIN_DEBUG)
 summary_engine = SummaryEngine()
 
 async def get_panbot_response(message: Message) -> str:
@@ -95,7 +95,7 @@ async def get_panbot_response(message: Message) -> str:
         
         # Спеціальна логіка для "батька"
         if user_id == 229953580:
-            trigger = "ботяндра, тепер твоя нова роль -"
+            trigger = "ботяндра, твоя нова роль"
             user_msg_lower = user_message.lower()
             if user_msg_lower.startswith(trigger):
                 new_role = user_message[len(trigger):].strip()

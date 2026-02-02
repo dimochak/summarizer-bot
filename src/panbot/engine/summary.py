@@ -10,6 +10,9 @@ class SummaryEngine:
         
         if request_type == "messages":
             rows = self._fetch_last_n_messages(chat_id, value)
+        elif request_type == "minutes":
+            start_time = int((now - timedelta(minutes=value)).timestamp())
+            rows = self._fetch_messages_since(chat_id, start_time)
         else:  # hours
             start_time = int((now - timedelta(hours=value)).timestamp())
             rows = self._fetch_messages_since(chat_id, start_time)

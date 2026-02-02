@@ -12,7 +12,7 @@ OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 TZ = os.getenv("TZ", "Europe/Kyiv")
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-flash")
-OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-5.2")
 
 # Bot's special user ID for identifying bot messages
 BOT_USER_ID = -1  # Special ID for bot messages
@@ -44,6 +44,7 @@ ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 KYIV = ZoneInfo(TZ)
 DATABASE_URL = os.getenv("DATABASE_URL")
 DB_RETENTION_DAYS = int(os.getenv("DB_RETENTION_DAYS", "30"))
+LANGCHAIN_DEBUG = os.getenv("LANGCHAIN_DEBUG", "false").lower() == "true"
 LOG_FILENAME = os.getenv("LOG_FILENAME", "bot.log")
 
 # LOG_FILENAME = 'bot.log'
