@@ -40,22 +40,26 @@ def get_traits_block(user_id) -> str:
     return f"\n\n{traits_line}\nВраховуй ці риси користувача при формуванні відповіді."
 
 def check_summary_request(text: str):
-    # TODO: check this usage
-    # Regex to find N messages or K hours
-    # Examples: "що відбулось за останні 100 повідомлень", "що було за 5 годин"
+    # Regex to find N messages, K hours or M minutes
+    # Examples: "що відбулось за останні 100 повідомлень", "що було за 5 годин", "підсумуй останні 30 хв"
     text = text.lower()
     if "що відбулось" not in text and "що було" not in text and "підсумуй" not in text:
         return None
     
-    # Try to find N messages
-    m_match = re.search(r"(\d+)\s+повідомлень", text)
+    # Try to find N messages (повідомлень, повідомлення, повідомлення, пвд)
+    m_match = re.search(r"(\d+)\s+(повідомл|повідом|пов|пвд|msg)", text)
     if m_match:
         return {"type": "messages", "value": min(int(m_match.group(1)), 2000)}
         
-    # Try to find K hours
-    h_match = re.search(r"(\d+)\s+годин", text)
+    # Try to find K hours (годин, години, година, год, h)
+    h_match = re.search(r"(\d+)\s+(годин|годин|год|h)", text)
     if h_match:
         return {"type": "hours", "value": min(int(h_match.group(1)), 48)}
+
+    # Try to find M minutes (хвилин, хвилини, хвилина, хв, m)
+    min_match = re.search(r"(\d+)\s+(хвилин|хвил|хв|min|m)", text)
+    if min_match:
+        return {"type": "minutes", "value": min(int(min_match.group(1)), 2880)} # limit to 48 hours
         
     return None
 
