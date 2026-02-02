@@ -40,6 +40,7 @@ def get_traits_block(user_id) -> str:
     return f"\n\n{traits_line}\nВраховуй ці риси користувача при формуванні відповіді."
 
 def check_summary_request(text: str):
+    # TODO: check this usage
     # Regex to find N messages or K hours
     # Examples: "що відбулось за останні 100 повідомлень", "що було за 5 годин"
     text = text.lower()
@@ -78,9 +79,9 @@ def should_reply(message):
         return True
 
     # Check for keywords like "прокоментуй", "що думаєш" when replying to ANY message
-    if hasattr(message, 'reply_to_message') and message.reply_to_message:
-        reply_triggers = ["прокоментуй", "що думаєш", "що скажеш", "твій коментар"]
-        if any(trigger in text for trigger in reply_triggers):
-            return True
+    # if hasattr(message, 'reply_to_message') and message.reply_to_message:
+    #     reply_triggers = ["прокоментуй", "що думаєш", "що скажеш", "твій коментар"]
+    #     if any(trigger in text for trigger in reply_triggers):
+    #         return True
 
     return False
