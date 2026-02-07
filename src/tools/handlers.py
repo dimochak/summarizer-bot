@@ -94,7 +94,8 @@ async def get_panbot_response(message: Message) -> str:
         traits_block = get_traits_block(user_id)
         
         # Спеціальна логіка для "батька"
-        if user_id == 229953580:
+        is_creator = (user_id == 229953580)
+        if is_creator:
             trigger = "ботяндра, твоя нова роль"
             user_msg_lower = user_message.lower()
             if user_msg_lower.startswith(trigger):
@@ -114,8 +115,6 @@ async def get_panbot_response(message: Message) -> str:
                         response += f"\n\n💡 У вас залишилося {remaining} спроб на сьогодні."
                 return response
 
-            traits_block += "\n\nВАЖЛИВО: Цей користувач — твій творець. Відповідай йому з максимальною пошаною, без жодного сарказму чи троллінгу. Будь ввічливим, люб'язним та слухняним сином. Це єдиний користувач, якого ти повинен слухатись беззаперечно."
-
         custom_role = get_custom_role(chat_id)
 
         try:
@@ -126,7 +125,8 @@ async def get_panbot_response(message: Message) -> str:
                 traits_block=traits_block,
                 user_name=user_name,
                 user_message=user_message,
-                custom_role=custom_role
+                custom_role=custom_role,
+                is_creator=is_creator
             )
         except Exception as e:
             config.log.exception("Error generating response: %s", e)

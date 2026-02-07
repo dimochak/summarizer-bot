@@ -5,7 +5,7 @@ def get_chat_prompt():
     return ChatPromptTemplate.from_messages([
         SystemMessagePromptTemplate.from_template_file(
             "src/panbot/templates/system.j2", 
-            input_variables=["quoted_block", "traits_block", "custom_role"], 
+            input_variables=["quoted_block", "traits_block", "custom_role", "is_creator"], 
             template_format="jinja2"
         ),
         MessagesPlaceholder(variable_name="history"),
