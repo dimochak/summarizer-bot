@@ -55,13 +55,21 @@ INITIAL_PLACEHOLDERS = [
     "🎯 Цікаво, скільки разів ви сьогодні минули суть повз вуха?",
 ]
 
+SKIP_REPLY_MESSAGES = [
+    "👍 Іронічний лайк за думку. Наступного разу спробуй здивувати сильніше.",
+    "😏 Ставлю уявний лайк. І ні, відповідати більше не буду.",
+    "🤏 Ось тобі міні-реакція, бо повноцінна відповідь тут зайва.",
+    "🫡 Зараховано. Реакція є, сенсу — як завжди, на мінімалках.",
+    "🙃 Іронічно схвалюю. Без продовження, щоб не зіпсувати момент.",
+]
+
 panbot_engine = PanBotEngine(debug=config.LANGCHAIN_DEBUG)
 summary_engine = SummaryEngine()
 
 
-async def should_reply_with_agent(message: Message) -> bool:
+async def should_reply_with_agent(message: Message) -> bool | None:
     if not should_reply(message):
-        return False
+        return None
 
     raw_text = message.text or message.caption or ""
     text = raw_text.lower()
@@ -209,9 +217,16 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Check if PanBot should reply to this message
-    if chat.id in config.PANBOT_CHAT_IDS and await should_reply_with_agent(msg):
+    if chat.id in config.PANBOT_CHAT_IDS:
+        reply_decision = await should_reply_with_agent(msg)
+        if reply_decision is None:
+            return
+
         try:
-            response = await get_panbot_response(msg)
+            if reply_decision:
+                response = await get_panbot_response(msg)
+            else:
+                response = random.choice(SKIP_REPLY_MESSAGES)
             # Ensure response is a string before replying and storing
             response_str = str(response) if response is not None else ""
             formatted_response = format_telegram_html(response_str)
