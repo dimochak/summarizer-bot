@@ -14,7 +14,12 @@ from src.tools.db import (
     upsert_photo_message,
     get_photo_messages_between,
     get_pet_messages_between,
-    upsert_pet_photo
+    upsert_pet_photo,
+    get_duplicate_photo_message_id,
+    get_panbot_usage,
+    increment_panbot_usage,
+    get_custom_role,
+    set_custom_role
 )
 from src.panbot.engine.core import PanBotEngine
 from src.panbot.engine.summary import SummaryEngine
@@ -23,19 +28,6 @@ from src.panbot.exceptions import SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
 from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
 from src.tools.utils import utc_ts, local_midnight_bounds, message_link
-from src.tools.db import (
-    db,
-    ensure_chat_record,
-    add_message,
-    upsert_photo_message,
-    get_photo_messages_between,
-    get_pet_messages_between,
-    upsert_pet_photo,
-    get_panbot_usage,
-    increment_panbot_usage,
-    get_custom_role,
-    set_custom_role
-)
 
 INITIAL_PLACEHOLDERS = [
     "⏳ Окей, я подивлюся, що ви там набазікали. Тільки не очікуйте нічого геніального.",
@@ -215,11 +207,11 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Handler for any photo (image) message in chats where the bot is present.
     Now supports both photo and image document uploads!
     """
-    if not update.message or not update.effective_chat:
+    msg = update.message or update.channel_post
+    if not msg or not update.effective_chat:
         return
 
     chat = update.effective_chat
-    msg = update.message
 
     config.log.info(f"Triggered on photo: chat {chat.id} msg {msg.message_id}")
 
@@ -233,24 +225,82 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if msg.photo:
         largest = msg.photo[-1]
         file_id = largest.file_id
+        file_unique_id = largest.file_unique_id
     elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):
         file_id = msg.document.file_id
+        file_unique_id = msg.document.file_unique_id
     else:
         config.log.warning(f"on_photo -- neither photo nor image document: message_id {msg.message_id}")
         return
 
+    config.log.info(f"on_photo: file_unique_id={file_unique_id} in chat {chat.id}")
+
     ts_utc_int = utc_ts(ts)
 
+    # First, store the photo message to ensure it's in the DB
     try:
         upsert_photo_message(
             chat_id=chat.id,
             message_id=msg.message_id,
             ts_utc=ts_utc_int,
             file_id=file_id,
+            file_unique_id=file_unique_id,
         )
-        config.log.info(f"Photo/document stored for deferred detection: chat {chat.id} msg {msg.message_id}")
+        config.log.info(f"Photo/document stored: chat {chat.id} msg {msg.message_id}")
     except Exception as e:
         config.log.exception("upsert_photo_message failed: %s", e)
+
+    # Check for duplicates if PanBot is enabled in this chat
+    if chat.id in config.PANBOT_CHAT_IDS:
+        # We look for a duplicate, excluding the current message
+        orig_msg_id = get_duplicate_photo_message_id(chat.id, file_unique_id, exclude_message_id=msg.message_id)
+        if orig_msg_id:
+            config.log.info(f"Duplicate photo detected in chat {chat.id}, file_unique_id {file_unique_id}, original message_id {orig_msg_id}")
+            try:
+                # Use a special prompt for the engine to generate a sarcastic comment about the duplicate (banka/bayan)
+                user_name = msg.from_user.full_name if msg.from_user else "Невідомий пасажир"
+                custom_role = get_custom_role(chat.id)
+                user_id = msg.from_user.id if msg.from_user else 0
+                is_creator = (user_id == 229953580)
+
+                orig_link = message_link(chat, orig_msg_id)
+                fake_msg = (
+                    f"Ця картинка вже була ось тут: {orig_link}\n"
+                    "Це 'банка' (баян)! Дай іронічно-саркастичний коментар, ОБОВ'ЯЗКОВО встав посилання на оригінал у свій текст "
+                    "та нагадай про посилання на банку для донатів: https://send.monobank.ua/jar/6BjaNq1d5B"
+                )
+                
+                response = await panbot_engine.generate_response(
+                    message=msg,
+                    quoted_block="",
+                    traits_block=get_traits_block(user_id),
+                    user_name=user_name,
+                    user_message=fake_msg,
+                    custom_role=custom_role,
+                    is_creator=is_creator
+                )
+                
+                # Send the response directly from LLM without manual link appending
+                bot_message = await msg.reply_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                config.log.info(f"Duplicate response sent: chat {chat.id} msg {bot_message.message_id}")
+                
+                # Add bot response to message history
+                bot_ts = bot_message.date
+                if bot_ts.tzinfo is None:
+                    bot_ts = bot_ts.replace(tzinfo=timezone.utc)
+                add_message(
+                    chat.id,
+                    bot_message.message_id,
+                    config.BOT_USER_ID,
+                    None,
+                    "PanBot",
+                    response,
+                    msg.message_id,
+                    utc_ts(bot_ts.astimezone(timezone.utc)),
+                )
+            except Exception as e:
+                config.log.exception(f"Error generating duplicate photo response: {e}")
+
 
 
 
