@@ -19,6 +19,12 @@ def get_quoted_block(message) -> str:
         pass
     return ""
 
+def format_telegram_html(text: str) -> str:
+    if not text:
+        return ""
+
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+
 def get_traits_block(user_id) -> str:
     traits = get_user_traits(user_id) if user_id else None
     if not traits:

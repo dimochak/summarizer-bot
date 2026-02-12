@@ -24,7 +24,13 @@ from src.tools.db import (
 )
 from src.panbot.engine.core import PanBotEngine
 from src.panbot.engine.summary import SummaryEngine
-from src.panbot.helpers import should_reply, check_summary_request, get_quoted_block, get_traits_block
+from src.panbot.helpers import (
+    should_reply,
+    check_summary_request,
+    get_quoted_block,
+    get_traits_block,
+    format_telegram_html,
+)
 from src.panbot.exceptions import SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
 from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
@@ -208,7 +214,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = await get_panbot_response(msg)
             # Ensure response is a string before replying and storing
             response_str = str(response) if response is not None else ""
-            bot_message = await msg.reply_text(response_str, parse_mode=ParseMode.HTML)
+            formatted_response = format_telegram_html(response_str)
+            bot_message = await msg.reply_text(formatted_response, parse_mode=ParseMode.HTML)
             bot_ts = bot_message.date
             if bot_ts.tzinfo is None:
                 bot_ts = bot_ts.replace(tzinfo=timezone.utc)
@@ -311,9 +318,10 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     custom_role=custom_role,
                     is_creator=is_creator
                 )
-                
+                formatted_response = format_telegram_html(response)
+
                 # Send the response directly from LLM without manual link appending
-                bot_message = await msg.reply_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                bot_message = await msg.reply_text(formatted_response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
                 config.log.info(f"Duplicate response sent: chat {chat.id} msg {bot_message.message_id}")
                 
                 # Add bot response to message history
