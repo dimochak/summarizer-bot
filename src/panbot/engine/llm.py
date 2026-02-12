@@ -28,6 +28,15 @@ class LLMEngine:
             llm = self.gemini_llm or self.openai_llm
         return llm
 
+    def get_reply_decision_llm(self, chat_id: int):
+        provider = self._determine_provider(chat_id)
+        if provider == "openai":
+            model_name = config.REPLY_DECISION_OPENAI_MODEL_NAME or config.OPENAI_MODEL_NAME
+            return ChatOpenAI(model=model_name, api_key=config.OPENAI_API_KEY)
+
+        model_name = config.REPLY_DECISION_GEMINI_MODEL_NAME or config.GEMINI_MODEL_NAME
+        return ChatGoogleGenerativeAI(model=model_name, api_key=config.GEMINI_API_KEY)
+
     def _determine_provider(self, chat_id: int) -> str:
         if chat_id in config.OPENAI_CHAT_IDS:
             return "openai"

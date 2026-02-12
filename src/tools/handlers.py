@@ -18,6 +18,7 @@ from src.tools.db import (
     get_duplicate_photo_message_id,
     get_panbot_usage,
     increment_panbot_usage,
+    is_bot_message,
     get_custom_role,
     set_custom_role
 )
@@ -50,6 +51,37 @@ INITIAL_PLACEHOLDERS = [
 
 panbot_engine = PanBotEngine(debug=config.LANGCHAIN_DEBUG)
 summary_engine = SummaryEngine()
+
+
+async def should_reply_with_agent(message: Message) -> bool:
+    if not should_reply(message):
+        return False
+
+    raw_text = message.text or message.caption or ""
+    text = raw_text.lower()
+    bot_triggers = ["ботяндра", "ботяндрік", "пан бот"]
+    has_trigger = any(trigger in text for trigger in bot_triggers)
+
+    reply_to_text = None
+    is_reply_to_bot = False
+    if getattr(message, "reply_to_message", None):
+        reply_to_text = message.reply_to_message.text or ""
+        chat_id = message.chat.id if getattr(message, "chat", None) else None
+        reply_to_id = message.reply_to_message.message_id
+        if chat_id and reply_to_id:
+            is_reply_to_bot = is_bot_message(chat_id, reply_to_id)
+
+    try:
+        return await panbot_engine.should_reply_by_agent(
+            message=message,
+            user_message=raw_text,
+            reply_to_text=reply_to_text,
+            is_reply_to_bot=is_reply_to_bot,
+            has_trigger=has_trigger,
+        )
+    except Exception as e:
+        config.log.exception("Reply agent failed, fallback to should_reply: %s", e)
+        return True
 
 async def get_panbot_response(message: Message) -> str:
     user_id = message.from_user.id if message.from_user else 0
@@ -171,7 +203,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Check if PanBot should reply to this message
-    if chat.id in config.PANBOT_CHAT_IDS and should_reply(msg):
+    if chat.id in config.PANBOT_CHAT_IDS and await should_reply_with_agent(msg):
         try:
             response = await get_panbot_response(msg)
             # Ensure response is a string before replying and storing

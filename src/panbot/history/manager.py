@@ -32,41 +32,78 @@ class ChatContextHistory(BaseChatMessageHistory):
         start_time = int((now - timedelta(hours=48)).timestamp())
         end_time = int(now.timestamp())
 
-        rows = self._fetch_messages(start_time, end_time)
+        general_rows = self._fetch_messages(start_time, end_time)
+        thread_rows = self._fetch_thread_rows(start_time, end_time)
 
-        if self.reply_to_id:
-            message_ids = {r["message_id"] for r in rows}
-            if self.reply_to_id not in message_ids:
-                replied_msg = get_message_by_id(self.chat_id, self.reply_to_id)
-                if replied_msg:
-                    rows.append(replied_msg)
-                    rows.sort(key=lambda x: x["ts_utc"], reverse=True)
-
-        if not rows:
+        if not general_rows and not thread_rows:
             return []
 
         messages = []
         used_tokens = 0
-        
-        for row in rows[::-1]:  # Хронологічно
+
+        if thread_rows:
+            rows_for_budget = thread_rows
+        else:
+            rows_for_budget = general_rows
+
+        for row in rows_for_budget:  # від найновіших до найстаріших
             name = row["full_name"] or row["username"] or "Учасник"
             text = (row["text"] or "").strip()
             if not text:
                 continue
 
             if row["user_id"] == config.BOT_USER_ID:
-                msg = AIMessage(content=text)
+                content = text
+                msg = AIMessage(content=content)
             else:
-                msg = HumanMessage(content=f"{name}: {text}")
+                content = f"{name}: {text}"
+                msg = HumanMessage(content=content)
 
-            tokens = len(_encoder.encode(text))
+            tokens = len(_encoder.encode(content))
             if used_tokens + tokens > self.max_tokens:
                 break
-                
-            messages.append(msg)
+
+            messages.append((row["ts_utc"], msg))
             used_tokens += tokens
 
-        return messages
+        messages.sort(key=lambda item: item[0])
+        return [msg for _, msg in messages]
+
+    def _fetch_thread_rows(self, start_ts: int, end_ts: int) -> list[dict]:
+        if not self.reply_to_id:
+            return []
+
+        chain = self._fetch_reply_chain(self.reply_to_id, start_ts, end_ts, max_depth=25)
+        if not chain:
+            return []
+
+        bot_index = next(
+            (idx for idx, row in enumerate(chain) if row["user_id"] == config.BOT_USER_ID),
+            None,
+        )
+        if bot_index is not None:
+            return chain[: bot_index + 1]
+
+        return chain[:1]
+
+    def _fetch_reply_chain(self, message_id: int, start_ts: int, end_ts: int, max_depth: int = 25) -> list[dict]:
+        chain = []
+        seen_ids = set()
+        current_id = message_id
+
+        while current_id and current_id not in seen_ids and len(chain) < max_depth:
+            row = get_message_by_id(self.chat_id, current_id)
+            if not row:
+                break
+
+            seen_ids.add(current_id)
+            if row["ts_utc"] < start_ts or row["ts_utc"] > end_ts:
+                break
+
+            chain.append(row)
+            current_id = row.get("reply_to_message_id")
+
+        return chain
 
     def _fetch_messages(self, start_ts: int, end_ts: int):
         try:
