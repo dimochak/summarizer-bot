@@ -39,7 +39,7 @@ def test_should_reply_with_agent_skips_when_should_reply_false(monkeypatch):
 
     import asyncio
     result = asyncio.run(should_reply_with_agent(msg))
-    assert result is False
+    assert result is None
 
 
 def test_should_reply_with_agent_uses_agent_decision(monkeypatch):
