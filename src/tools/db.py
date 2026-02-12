@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS photo_messages (
     message_id BIGINT NOT NULL,
     ts_utc BIGINT NOT NULL,
     file_id TEXT NOT NULL,
+    file_unique_id TEXT,
     PRIMARY KEY (chat_id, message_id)
 );
 
@@ -82,6 +83,7 @@ def init_db():
         # Migration: add custom_role column if it doesn't exist
         try:
             cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS custom_role TEXT")
+            cur.execute("ALTER TABLE photo_messages ADD COLUMN IF NOT EXISTS file_unique_id TEXT")
             conn.commit()
         except Exception:
             pass
@@ -231,16 +233,34 @@ def get_pet_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -
         return list(cur.fetchall())
 
 
-def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_id: str):
+def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_id: str, file_unique_id: str | None = None):
     with closing(db()) as conn, closing(conn.cursor()) as cur:
         cur.execute(
-            """INSERT INTO photo_messages (chat_id, message_id, ts_utc, file_id)
-               VALUES (%s, %s, %s, %s)
+            """INSERT INTO photo_messages (chat_id, message_id, ts_utc, file_id, file_unique_id)
+               VALUES (%s, %s, %s, %s, %s)
                ON CONFLICT (chat_id, message_id)
-               DO UPDATE SET ts_utc=EXCLUDED.ts_utc, file_id=EXCLUDED.file_id""",
-            (chat_id, message_id, ts_utc, file_id),
+               DO UPDATE SET 
+               ts_utc=EXCLUDED.ts_utc, 
+               file_id=EXCLUDED.file_id, 
+               file_unique_id=EXCLUDED.file_unique_id""",
+            (chat_id, message_id, ts_utc, file_id, file_unique_id),
         )
         conn.commit()
+
+
+def get_duplicate_photo_message_id(chat_id: int, file_unique_id: str, exclude_message_id: int | None = None) -> int | None:
+    if not file_unique_id:
+        return None
+    with closing(db()) as conn, closing(conn.cursor()) as cur:
+        query = "SELECT message_id FROM photo_messages WHERE chat_id=%s AND file_unique_id=%s"
+        params = [chat_id, file_unique_id]
+        if exclude_message_id:
+            query += " AND message_id != %s"
+            params.append(exclude_message_id)
+        query += " ORDER BY ts_utc ASC LIMIT 1"
+        cur.execute(query, params)
+        row = cur.fetchone()
+        return row["message_id"] if row else None
 
 def get_photo_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -> list[dict]:
     with closing(db()) as conn, closing(conn.cursor()) as cur:

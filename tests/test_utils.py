@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 import pytest
 
-import src.utils as utils
+import src.tools.utils as utils
 
 # Ensure project root is on sys.path so `import src...` works
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +64,10 @@ def test_message_link_id_variants(chat_id, expected_prefix):
     chat = SimpleNamespace(id=chat_id, username=None)
     url = utils.message_link(chat, 77)
     assert url == f"{expected_prefix}77"
+
+    # Also test with raw integer ID
+    url_int = utils.message_link(chat_id, 77)
+    assert url_int == f"{expected_prefix}77"
 
 
 def test_user_link_with_username_and_escape_label():

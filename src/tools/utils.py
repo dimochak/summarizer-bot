@@ -18,10 +18,10 @@ def local_midnight_bounds(day_local: datetime):
     return start_local, end_local
 
 
-def message_link(chat: Chat, message_id: int) -> str:
-    if chat.username:
+def message_link(chat: Chat | int, message_id: int) -> str:
+    if not isinstance(chat, int) and chat.username:
         return f"https://t.me/{chat.username}/{message_id}"
-    cid = str(chat.id)
+    cid = str(chat.id if not isinstance(chat, int) else chat)
     if cid.startswith("-100"):
         cid = cid[4:]
     else:
