@@ -68,7 +68,8 @@ def should_reply(message):
     if not (message.text or message.caption):
         return False
 
-    text = (message.text or message.caption).lower()
+    raw_text = (message.text or message.caption)
+    text = raw_text.lower()
 
     if hasattr(message, 'reply_to_message') and message.reply_to_message:
         chat_id = message.chat.id if hasattr(message, 'chat') else None
@@ -81,11 +82,5 @@ def should_reply(message):
     bot_triggers = ["ботяндра", "ботяндрік", "пан бот"]
     if any(trigger in text for trigger in bot_triggers):
         return True
-
-    # Check for keywords like "прокоментуй", "що думаєш" when replying to ANY message
-    # if hasattr(message, 'reply_to_message') and message.reply_to_message:
-    #     reply_triggers = ["прокоментуй", "що думаєш", "що скажеш", "твій коментар"]
-    #     if any(trigger in text for trigger in reply_triggers):
-    #         return True
 
     return False

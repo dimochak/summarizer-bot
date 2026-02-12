@@ -1,8 +1,9 @@
 from langchain_core.globals import set_debug
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from src.panbot.engine.llm import LLMEngine
-from src.panbot.prompts.factory import get_chat_prompt
+from src.panbot.prompts.factory import get_chat_prompt, get_reply_decision_prompt
 from src.panbot.history.manager import ChatContextHistory
+from src.panbot.models import ReplyDecision
 from src.tools.config import log
 
 class PanBotEngine:
@@ -54,3 +55,23 @@ class PanBotEngine:
 
         log.info(f"PanBotEngine result: {result.response}")
         return result.response
+
+    async def should_reply_by_agent(
+        self,
+        message,
+        user_message: str,
+        reply_to_text: str | None,
+        is_reply_to_bot: bool,
+        has_trigger: bool,
+    ) -> bool:
+        chat_id = message.chat.id
+        llm = self.llm_engine.get_reply_decision_llm(chat_id).with_structured_output(ReplyDecision)
+        prompt = get_reply_decision_prompt().format(
+            user_message=user_message,
+            is_reply_to_bot=is_reply_to_bot,
+            has_trigger=has_trigger,
+            reply_to_text=reply_to_text or "",
+        )
+
+        result = await llm.ainvoke(prompt)
+        return bool(result.reply)

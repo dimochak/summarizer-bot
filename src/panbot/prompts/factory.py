@@ -1,4 +1,6 @@
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from pathlib import Path
+
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
 from langchain_core.prompts.chat import SystemMessagePromptTemplate, HumanMessagePromptTemplate
 
 def get_chat_prompt():
@@ -15,3 +17,10 @@ def get_chat_prompt():
             template_format="jinja2"
         ),
     ])
+
+def get_reply_decision_prompt():
+    template = Path("src/panbot/templates/reply_decision.j2").read_text(encoding="utf-8")
+    return PromptTemplate.from_template(
+        template,
+        template_format="jinja2",
+    )

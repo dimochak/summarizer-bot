@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import pytest
 import src.tools.config as config
-from src.tools.handlers import get_panbot_response, should_reply
+from src.tools.handlers import get_panbot_response, should_reply, should_reply_with_agent
 from src.panbot.exceptions import SarcasmLimitExceeded
 
 class FakeMessage:
@@ -26,6 +26,34 @@ def test_no_trigger_no_reply():
 def test_trigger_and_reply():
     msg = FakeMessage("Пан бот, привіт", user_id=123, message_id=1)
     assert should_reply(msg) is True
+
+
+def test_should_reply_with_agent_skips_when_should_reply_false(monkeypatch):
+    async def mock_decide(*args, **kwargs):
+        raise AssertionError("Agent should not be called when should_reply is False")
+
+    from src.tools import handlers as handlers_mod
+    monkeypatch.setattr(handlers_mod.panbot_engine, "should_reply_by_agent", mock_decide)
+
+    msg = FakeMessage("random text", user_id=123, message_id=1)
+
+    import asyncio
+    result = asyncio.run(should_reply_with_agent(msg))
+    assert result is False
+
+
+def test_should_reply_with_agent_uses_agent_decision(monkeypatch):
+    async def mock_decide(*args, **kwargs):
+        return False
+
+    from src.tools import handlers as handlers_mod
+    monkeypatch.setattr(handlers_mod.panbot_engine, "should_reply_by_agent", mock_decide)
+
+    msg = FakeMessage("Пан бот, привіт", user_id=123, message_id=1)
+
+    import asyncio
+    result = asyncio.run(should_reply_with_agent(msg))
+    assert result is False
 
 def test_daily_limit_enforced(monkeypatch):
     import src.tools.handlers as handlers_mod
