@@ -34,7 +34,11 @@ from src.panbot.helpers import (
 from src.panbot.exceptions import SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
 from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
+from jinja2 import Environment, FileSystemLoader
 from src.tools.utils import utc_ts, local_midnight_bounds, message_link
+
+_jinja_env = Environment(loader=FileSystemLoader("src/panbot/templates"))
+_skip_reply_template = _jinja_env.get_template("skip_reply.j2")
 
 INITIAL_PLACEHOLDERS = [
     "⏳ Окей, я подивлюся, що ви там набазікали. Тільки не очікуйте нічого геніального.",
@@ -226,7 +230,21 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if reply_decision:
                 response = await get_panbot_response(msg)
             else:
-                response = random.choice(SKIP_REPLY_MESSAGES)
+                user_name = msg.from_user.full_name if msg.from_user else "Невідомий пасажир"
+                user_id = msg.from_user.id if msg.from_user else 0
+                user_message = msg.text or msg.caption or ""
+                custom_role = get_custom_role(chat.id)
+                is_creator = (user_id == 229953580)
+                skip_prompt = _skip_reply_template.render(user_message=user_message)
+                response = await panbot_engine.generate_response(
+                    message=msg,
+                    quoted_block="",
+                    traits_block=get_traits_block(user_id),
+                    user_name=user_name,
+                    user_message=skip_prompt,
+                    custom_role=custom_role,
+                    is_creator=is_creator,
+                )
             # Ensure response is a string before replying and storing
             response_str = str(response) if response is not None else ""
             formatted_response = format_telegram_html(response_str)

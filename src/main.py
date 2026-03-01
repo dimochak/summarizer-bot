@@ -32,8 +32,6 @@ def main():
     )
     photo_or_image_doc_filter = filters.PHOTO | filters.Document.IMAGE
     app.add_handler(MessageHandler(photo_or_image_doc_filter, on_photo))
-    # Handle photos in channel posts if the bot is used in channels or linked chats
-    app.add_handler(MessageHandler(photo_or_image_doc_filter, on_photo), group=1) 
 
     app.add_handler(CommandHandler("chatid", cmd_chatid))
 
