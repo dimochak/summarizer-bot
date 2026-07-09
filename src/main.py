@@ -5,6 +5,7 @@ from src.tools.db import init_db
 from src.tools.handlers import (
     on_message,
     on_photo,
+    on_voice_video,
     cmd_chatid,
     cmd_summary_now,
     cmd_enable_summaries,
@@ -23,10 +24,14 @@ def main():
     app.add_handler(
         MessageHandler(~filters.StatusUpdate.ALL &
                        ~filters.COMMAND &
-                       ~filters.PHOTO, on_message)
+                       ~filters.PHOTO &
+                       ~filters.VOICE &
+                       ~filters.VIDEO_NOTE, on_message)
     )
     photo_or_image_doc_filter = filters.PHOTO | filters.Document.IMAGE
     app.add_handler(MessageHandler(photo_or_image_doc_filter, on_photo))
+
+    app.add_handler(MessageHandler(filters.VOICE | filters.VIDEO_NOTE, on_voice_video))
 
     app.add_handler(CommandHandler("chatid", cmd_chatid))
 
