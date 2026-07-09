@@ -1,24 +1,10 @@
 # tests/test_utils.py
-import os
-import sys
 from datetime import datetime
-from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 import pytest
 
-import src.utils as utils
-
-# Ensure project root is on sys.path so `import src...` works
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-
-# Ensure required env vars before importing src.config/src.utils
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
-os.environ.setdefault("GEMINI_API_KEY", "test-gemini-key")
-os.environ.setdefault("TZ", "Europe/Kyiv")
+import src.tools.utils as utils
 
 
 def test_utc_ts():

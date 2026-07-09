@@ -43,7 +43,8 @@ ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 
 KYIV = ZoneInfo(TZ)
 DATABASE_URL = os.getenv("DATABASE_URL")
-LOG_FILENAME = os.path.join("/app/data", "bot.log")
+# Defaults to the Fly.io mounted volume; override with LOG_FILE for local runs/tests.
+LOG_FILENAME = os.getenv("LOG_FILE", os.path.join("/app/data", "bot.log"))
 
 logger.remove()
 logger.add(
