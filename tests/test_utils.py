@@ -1,24 +1,26 @@
 # tests/test_utils.py
-import os
-import sys
 from datetime import datetime
-from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 import pytest
 
-import src.utils as utils
-
-# Ensure project root is on sys.path so `import src...` works
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+import src.tools.utils as utils
+import src.tools.config as config
 
 
-# Ensure required env vars before importing src.config/src.utils
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
-os.environ.setdefault("GEMINI_API_KEY", "test-gemini-key")
-os.environ.setdefault("TZ", "Europe/Kyiv")
+@pytest.mark.parametrize("value,expected", [
+    ("true", True), ("1", True), ("YES", True), ("on", True),
+    ("false", False), ("0", False), ("no", False), ("off", False), ("", False),
+])
+def test_env_flag_parses_values(monkeypatch, value, expected):
+    monkeypatch.setenv("SOME_FLAG", value)
+    assert config.env_flag("SOME_FLAG", default=True) is expected
+
+
+def test_env_flag_defaults_when_unset(monkeypatch):
+    monkeypatch.delenv("SOME_FLAG", raising=False)
+    assert config.env_flag("SOME_FLAG", default=True) is True
+    assert config.env_flag("SOME_FLAG", default=False) is False
 
 
 def test_utc_ts():

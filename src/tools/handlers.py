@@ -1,5 +1,6 @@
 from datetime import datetime, timezone, time as dtime
 from contextlib import closing
+from html import escape
 import random
 
 from telegram import Update, Chat, Message
@@ -19,6 +20,7 @@ from src.tools.db import (
 from src.panbot.bot import PanBot, SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
 from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
+from src.transcriber.transcribe import transcribe_by_file_id
 from src.tools.utils import utc_ts, local_midnight_bounds, message_link
 
 INITIAL_PLACEHOLDERS = [
@@ -144,6 +146,65 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         config.log.exception("upsert_photo_message failed: %s", e)
 
+
+async def on_voice_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler for Telegram voice messages and round video notes.
+    Transcribes the audio with Gemini, replies with the text, and stores the
+    transcript as the message so it feeds into the daily summary (attributed to
+    the original speaker).
+    """
+    msg: Message = update.effective_message
+    chat: Chat = update.effective_chat
+    if not msg or not chat:
+        return
+
+    if chat.id not in config.ALLOWED_CHAT_IDS:
+        return
+
+    if msg.voice:
+        file_id = msg.voice.file_id
+        mime_type = msg.voice.mime_type or "audio/ogg"
+    elif msg.video_note:
+        file_id = msg.video_note.file_id
+        mime_type = "video/mp4"  # VideoNote has no mime_type; Telegram sends mp4
+    else:
+        return
+
+    ensure_chat_record(chat)
+
+    ts = msg.date
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+
+    placeholder = await msg.reply_text("🎧 Розшифровую запис...")
+
+    try:
+        transcript = await transcribe_by_file_id(context, file_id, mime_type)
+    except Exception as e:
+        config.log.exception(f"Transcription failed for chat {chat.id} msg {msg.message_id}: {e}")
+        await placeholder.edit_text("Не вдалося розшифрувати запис 😔")
+        return
+
+    if not transcript:
+        await placeholder.edit_text("🔇 Не вдалося розпізнати мовлення у записі.")
+        return
+
+    add_message(
+        chat.id,
+        msg.message_id,
+        (msg.from_user and msg.from_user.id) or None,
+        (msg.from_user and msg.from_user.username) or None,
+        (msg.from_user and msg.from_user.full_name) or None,
+        transcript,
+        (msg.reply_to_message and msg.reply_to_message.message_id) or None,
+        utc_ts(ts.astimezone(timezone.utc)),
+    )
+
+    await placeholder.edit_text(
+        f"🎧 <b>Розшифровка:</b>\n{escape(transcript)}",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def cmd_chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
