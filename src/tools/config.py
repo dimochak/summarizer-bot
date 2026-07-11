@@ -6,6 +6,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def env_flag(name: str, default: bool) -> bool:
+    """Parse a boolean env var; accepts 1/true/yes/on (case-insensitive)."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -13,6 +22,9 @@ OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 TZ = os.getenv("TZ", "Europe/Kyiv")
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-flash")
 OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+
+# Feature toggle read at startup: transcribe voice messages / video notes.
+TRANSCRIPTION_ENABLED = env_flag("TRANSCRIPTION_ENABLED", True)
 
 # Bot's special user ID for identifying bot messages
 BOT_USER_ID = -1  # Special ID for bot messages
@@ -107,3 +119,4 @@ log.info(f"GEMINI_MODEL_NAME={GEMINI_MODEL_NAME}")
 log.info(f"OPENAI_MODEL_NAME={OPENAI_MODEL_NAME}")
 log.info(f"PANBOT_CHAT_IDS={PANBOT_CHAT_IDS}")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")
+log.info(f"TRANSCRIPTION_ENABLED={TRANSCRIPTION_ENABLED}")

@@ -1,10 +1,11 @@
 # Telegram Summarizer Bot — OpenAI + Gemini + python-telegram-bot + Fly.io
 
-A Ukrainian-language Telegram group bot with three features:
+A Ukrainian-language Telegram group bot with four features:
 
 - **Daily Summary** — at **23:59 (Europe/Kyiv)** it posts **#Підсумки_дня**: the day's topics clustered by an LLM, each linking to the **first message of the topic** and to its **initiator** (clickable user link or @username). Also available on demand via `/summary_now`.
 - **PanBot** — a sarcastic auto-responder that replies when a message contains a trigger word (`ботяндра`/`ботяндрік`) or is a reply to one of the bot's own messages, subject to a per-user daily quota.
 - **PetFinder** — `/petfinder` scans the day's photos, detects cats/dogs with a vision model, and posts links with short ironic captions.
+- **Transcription** — voice messages and round video notes are transcribed to text with Gemini; the bot replies with the transcript and stores it so it feeds the daily summary. Toggle at startup with `TRANSCRIPTION_ENABLED` (default on).
 
 ---
 
@@ -62,6 +63,8 @@ PANBOT_CHAT_IDS=-1001234567890
 OPENAI_MODEL_NAME=gpt-4o-mini
 GEMINI_MODEL_NAME=gemini-2.5-flash
 PET_CONFIDENCE_THRESHOLD=0.6
+# Set to false to disable voice/video-note transcription at startup:
+TRANSCRIPTION_ENABLED=true
 # Where to write the rotating log file (defaults to /app/data/bot.log for Fly).
 # Set to a writable local path when running outside the container:
 LOG_FILE=./bot.log

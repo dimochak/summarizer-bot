@@ -31,7 +31,11 @@ def main():
     photo_or_image_doc_filter = filters.PHOTO | filters.Document.IMAGE
     app.add_handler(MessageHandler(photo_or_image_doc_filter, on_photo))
 
-    app.add_handler(MessageHandler(filters.VOICE | filters.VIDEO_NOTE, on_voice_video))
+    if config.TRANSCRIPTION_ENABLED:
+        app.add_handler(MessageHandler(filters.VOICE | filters.VIDEO_NOTE, on_voice_video))
+        config.log.info("Transcription enabled: voice/video-note handler registered.")
+    else:
+        config.log.info("Transcription disabled (TRANSCRIPTION_ENABLED=false); skipping handler.")
 
     app.add_handler(CommandHandler("chatid", cmd_chatid))
 

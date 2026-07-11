@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-A Telegram group-chat bot (Ukrainian-language) that runs three features on incoming messages/photos:
+A Telegram group-chat bot (Ukrainian-language) that runs four features on incoming messages/photos/audio:
 
 1. **Summarizer** — at 23:59 Europe/Kyiv (and on-demand via `/summary_now`) it clusters the day's messages into topics with an LLM and posts a `#Підсумки_дня` summary, with links to the first message and initiator of each topic. Supports a toxicity level 0–9.
 2. **PanBot** — a sarcastic auto-responder that replies when a message contains a trigger word (`ботяндра`/`ботяндрік`) or is a reply to a bot message, subject to a per-user daily quota.
 3. **PetFinder** — `/petfinder` scans the day's photos, uses a vision model to detect cats/dogs, and posts links with ironic captions.
+4. **Transcriber** — transcribes voice messages and round video notes with Gemini, replies with the text, and stores it as the message (attributed to the original speaker) so it feeds the daily summary. Gated at startup by `TRANSCRIPTION_ENABLED`.
 
 The bot runs in **long-polling** mode (`app.run_polling`), not webhooks.
 
@@ -27,7 +28,7 @@ Run the bot as a module (`python -m src.main`), not `python src/main.py` — the
 
 ## Required environment (.env)
 
-`TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `OPENAI_API_KEY` are **required at import time** (`config.py` reads them with `os.environ[...]`, so a missing one crashes on startup). `DATABASE_URL` (Postgres) is required for any DB operation. Chat routing is controlled by comma-separated ID env vars: `OPENAI_CHAT_IDS`, `GEMINI_CHAT_IDS`, `PANBOT_CHAT_IDS`. Optional: `TZ` (default `Europe/Kyiv`), `OPENAI_MODEL_NAME` (default `gpt-4o-mini`), `GEMINI_MODEL_NAME` (default `gemini-2.5-flash`), `PET_CONFIDENCE_THRESHOLD` (default `0.6`), `LOG_FILE` (default `/app/data/bot.log` — the Fly volume path; override it when running outside the container or the loguru file sink fails with a read-only-`/app` error on import).
+`TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `OPENAI_API_KEY` are **required at import time** (`config.py` reads them with `os.environ[...]`, so a missing one crashes on startup). `DATABASE_URL` (Postgres) is required for any DB operation. Chat routing is controlled by comma-separated ID env vars: `OPENAI_CHAT_IDS`, `GEMINI_CHAT_IDS`, `PANBOT_CHAT_IDS`. Optional: `TZ` (default `Europe/Kyiv`), `OPENAI_MODEL_NAME` (default `gpt-4o-mini`), `GEMINI_MODEL_NAME` (default `gemini-2.5-flash`), `PET_CONFIDENCE_THRESHOLD` (default `0.6`), `TRANSCRIPTION_ENABLED` (default `true`; parsed via `config.env_flag`, set `false`/`0`/`no`/`off` to skip registering the voice/video-note handler at startup), `LOG_FILE` (default `/app/data/bot.log` — the Fly volume path; override it when running outside the container or the loguru file sink fails with a read-only-`/app` error on import).
 
 ## Architecture
 
@@ -40,6 +41,7 @@ Entry point is [src/main.py](src/main.py): it calls `init_db()`, registers handl
 - **[src/summarizer/summarizer.py](src/summarizer/summarizer.py)** — `summarize_day()` is the core. It reads messages for the window, builds a token-budgeted snippet with `tiktoken`, and calls OpenAI or Gemini depending on which set the chat is in. Both providers are asked for JSON. Key behavior: it **retries from the requested toxicity level down to 0** on safety-filter blocks, and falls back to an ironic canned message if blocked all the way down. Output is HTML (escaped) with `message_link`/`user_link` anchors.
 - **[src/panbot/bot.py](src/panbot/bot.py)** — `PanBot` class; `should_reply()` decides whether to respond, `build_conversation_prompt()` pulls ~12h of chat context from the DB, `process_reply()` enforces the daily quota (`panbot_limits` table) and raises `SarcasmLimitExceeded`.
 - **[src/petfinder/pets.py](src/petfinder/pets.py)** — `detect_and_caption_by_file_id()` downloads a Telegram photo and does joint pet-detection + caption in one OpenAI vision call returning JSON `{species, confidence, caption}`.
+- **[src/transcriber/transcribe.py](src/transcriber/transcribe.py)** — `transcribe_by_file_id()` downloads a Telegram audio/video file and sends it inline to Gemini (bytes + mime_type) for a verbatim transcript. The `on_voice_video` handler stores the transcript via `add_message` (under the original speaker/message_id, so summaries link/attribute it) and replies with it. Registered in `main.py` only when `TRANSCRIPTION_ENABLED`; voice/video-note are excluded from the generic `on_message` filter so this handler wins.
 
 ### Provider routing
 A chat's LLM provider is determined **only** by set membership: `OPENAI_CHAT_IDS` vs `GEMINI_CHAT_IDS`. `ALLOWED_CHAT_IDS` is their union and gates the summarizer/commands. A chat in neither set is ignored by `on_message` and rejected by the commands. PanBot is gated separately by `PANBOT_CHAT_IDS`.

@@ -5,6 +5,22 @@ from zoneinfo import ZoneInfo
 import pytest
 
 import src.tools.utils as utils
+import src.tools.config as config
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("true", True), ("1", True), ("YES", True), ("on", True),
+    ("false", False), ("0", False), ("no", False), ("off", False), ("", False),
+])
+def test_env_flag_parses_values(monkeypatch, value, expected):
+    monkeypatch.setenv("SOME_FLAG", value)
+    assert config.env_flag("SOME_FLAG", default=True) is expected
+
+
+def test_env_flag_defaults_when_unset(monkeypatch):
+    monkeypatch.delenv("SOME_FLAG", raising=False)
+    assert config.env_flag("SOME_FLAG", default=True) is True
+    assert config.env_flag("SOME_FLAG", default=False) is False
 
 
 def test_utc_ts():
