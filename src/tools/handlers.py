@@ -25,20 +25,27 @@ from src.tools.db import (
 from src.panbot.engine.core import PanBotEngine
 from src.panbot.engine.summary import SummaryEngine
 from src.panbot.helpers import (
+    BOT_TRIGGERS,
     should_reply,
     check_summary_request,
     get_quoted_block,
     get_traits_block,
-    format_telegram_html,
 )
+from src.panbot.formatting import format_telegram_html
 from src.panbot.exceptions import SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
 from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
-from jinja2 import Environment, FileSystemLoader
 from src.tools.utils import utc_ts, local_midnight_bounds, message_link
+from src.websearch.search import FAS_PATTERN, search_web, summarize_results
 
-_jinja_env = Environment(loader=FileSystemLoader("src/panbot/templates"))
-_skip_reply_template = _jinja_env.get_template("skip_reply.j2")
+SEARCH_PLACEHOLDERS = [
+    "🔍 Зараз, зараз... Полізу в інтернет, бо своїх мізків не вистачає на таке.",
+    "🌐 О, ви хочете, щоб я ще й гуглив за вас? Ну добре, чекайте...",
+    "🔎 Запускаю пошук... Сподіваюся, результат буде розумнішим за запит.",
+    "🧠 Мої нейрони перенаправляються в інтернет. Тримайтесь.",
+    "🕵️ Йду шукати. Якщо не повернусь — шукайте мене в кеші Google.",
+    "📡 Підключаюсь до всесвітньої павутини. Павуки вже чекають.",
+]
 
 INITIAL_PLACEHOLDERS = [
     "⏳ Окей, я подивлюся, що ви там набазікали. Тільки не очікуйте нічого геніального.",
@@ -77,8 +84,7 @@ async def should_reply_with_agent(message: Message) -> bool | None:
 
     raw_text = message.text or message.caption or ""
     text = raw_text.lower()
-    bot_triggers = ["ботяндра", "ботяндрік", "пан бот"]
-    has_trigger = any(trigger in text for trigger in bot_triggers)
+    has_trigger = any(trigger in text for trigger in BOT_TRIGGERS)
 
     reply_to_text = None
     is_reply_to_bot = False
@@ -101,6 +107,30 @@ async def should_reply_with_agent(message: Message) -> bool | None:
         config.log.exception("Reply agent failed, fallback to should_reply: %s", e)
         return True
 
+FALLBACK_RESPONSES = [
+    "О, у мене технічні проблеми! Як символічно для нашого розмови 🙄",
+    "Мій штучний інтелект відмовляється працювати з таким рівнем запитань 🤖",
+    "Вибачте, але моя іронія зараз на технічному обслуговуванні ⚙️",
+    "Схоже, навіть комп'ютери можуть втомлюватися від людської нелогічності 😴",
+    "Error 404: Сарказм не знайдено. Спробуйте розумніше питання 🔍",
+]
+
+CREATOR_USER_ID = 229953580
+CUSTOM_ROLE_TRIGGER = "ботяндра, твоя нова роль"
+
+
+def _append_quota_notice(response: str, remaining: int) -> str:
+    """Попереджає про вичерпання денної норми на останніх спробах."""
+    if remaining > 1:
+        return response
+    if remaining <= 0:
+        return response + (
+            "\n\n⚠️ Це ваша остання спроба поспілкуватись зі мною на сьогодні. "
+            "Адьйос, пасажири!"
+        )
+    return response + f"\n\n💡 У вас залишилося {remaining} спроб на сьогодні."
+
+
 async def get_panbot_response(message: Message) -> str:
     user_id = message.from_user.id if message.from_user else 0
     chat_id = message.chat.id
@@ -114,53 +144,45 @@ async def get_panbot_response(message: Message) -> str:
             f"Спробуйте завтра, можливо, до того часу ваші питання стануть розумнішими! 🙄"
         )
 
-    new_count = increment_panbot_usage(user_id, chat_id, today)
-
     user_message = message.text or ""
     user_name = message.from_user.full_name if message.from_user else "Невідомий пасажир"
-    
-    # Check for summary request
+
+    # Спроба вважається витраченою лише тоді, коли користувач отримав
+    # осмислену відповідь. Технічний збій квоту не з'їдає.
+    charge_quota = True
+
     summary_match = check_summary_request(user_message)
     if summary_match:
         try:
             response = await summary_engine.get_summary(
-                chat_id=message.chat.id,
+                chat_id=chat_id,
                 request_type=summary_match["type"],
-                value=summary_match["value"]
+                value=summary_match["value"],
             )
         except Exception as e:
             config.log.exception("Error handling summary request: %s", e)
             response = "Не зміг підсумувати ваші бредні, спробуйте пізніше 🙄"
+            charge_quota = False
     else:
         quoted_block = get_quoted_block(message)
         traits_block = get_traits_block(user_id)
-        
-        # Спеціальна логіка для "батька"
-        is_creator = (user_id == 229953580)
-        if is_creator:
-            trigger = "ботяндра, твоя нова роль"
-            user_msg_lower = user_message.lower()
-            if user_msg_lower.startswith(trigger):
-                new_role = user_message[len(trigger):].strip()
-                set_custom_role(chat_id, new_role if new_role else None)
-                if new_role:
-                    response = f"Слухаюсь, батьку! Тепер моя роль: {new_role}"
-                else:
-                    response = "Слухаюсь, батьку! Кастомну роль скинуто до стандартної."
-                
-                # Повертаємо відповідь без виклику LLM
-                remaining = daily_limit - new_count
-                if remaining <= 1:
-                    if remaining == 0:
-                        response += "\n\n⚠️ Це ваша остання спроба поспілкуватись зі мною на сьогодні. Адьйос, пасажири!"
-                    else:
-                        response += f"\n\n💡 У вас залишилося {remaining} спроб на сьогодні."
-                return response
+        is_creator = user_id == CREATOR_USER_ID
+
+        if is_creator and user_message.lower().startswith(CUSTOM_ROLE_TRIGGER):
+            new_role = user_message[len(CUSTOM_ROLE_TRIGGER):].strip()
+            set_custom_role(chat_id, new_role or None)
+            response = (
+                f"Слухаюсь, батьку! Тепер моя роль: {new_role}"
+                if new_role
+                else "Слухаюсь, батьку! Кастомну роль скинуто до стандартної."
+            )
+            new_count = increment_panbot_usage(user_id, chat_id, today)
+            return _append_quota_notice(response, daily_limit - new_count)
 
         custom_role = get_custom_role(chat_id)
 
         try:
-            config.log.info(f"Generating response for chat {message.chat.id}")
+            config.log.info(f"Generating response for chat {chat_id}")
             response = await panbot_engine.generate_response(
                 message=message,
                 quoted_block=quoted_block,
@@ -168,35 +190,26 @@ async def get_panbot_response(message: Message) -> str:
                 user_name=user_name,
                 user_message=user_message,
                 custom_role=custom_role,
-                is_creator=is_creator
+                is_creator=is_creator,
             )
         except Exception as e:
             config.log.exception("Error generating response: %s", e)
-            fallback_responses = [
-                "О, у мене технічні проблеми! Як символічно для нашого розмови 🙄",
-                "Мій штучний інтелект відмовляється працювати з таким рівнем запитань 🤖",
-                "Вибачте, але моя іронія зараз на технічному обслуговуванні ⚙️",
-                "Схоже, навіть комп'ютери можуть втомлюватися від людської нелогічності 😴",
-                "Error 404: Сарказм не знайдено. Спробуйте розумніше питання 🔍"
-            ]
-            response = random.choice(fallback_responses)
+            response = random.choice(FALLBACK_RESPONSES)
+            charge_quota = False
 
-    remaining = daily_limit - new_count
-    if remaining <= 1:
-        if remaining == 0:
-            response += "\n\n⚠️ Це ваша остання спроба поспілкуватись зі мною на сьогодні. Адьйос, пасажири!"
-        else:
-            response += f"\n\n💡 У вас залишилося {remaining} спроб на сьогодні."
+    if not charge_quota:
+        return response
 
-    return response
+    new_count = increment_panbot_usage(user_id, chat_id, today)
+    return _append_quota_notice(response, daily_limit - new_count)
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg: Message = update.effective_message
     chat: Chat = update.effective_chat
 
-    # Check if this chat is allowed (either Gemini or OpenAI)
-    if chat.id not in config.ALLOWED_CHAT_IDS:
+    # Бот працює в чаті, якщо той налаштований або на підсумки, або на PanBot
+    if chat.id not in config.KNOWN_CHAT_IDS:
         return
 
     ensure_chat_record(chat)
@@ -220,6 +233,26 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         utc_ts(ts.astimezone(timezone.utc)),
     )
 
+    # Check for "ботяндра, <query>, фас" search pattern
+    fas_match = FAS_PATTERN.search(text) if text else None
+    if fas_match:
+        query = fas_match.group(1).strip()
+        if query:
+            placeholder = await msg.reply_text(random.choice(SEARCH_PLACEHOLDERS))
+            try:
+                results = search_web(query)
+                answer = await summarize_results(query, results, chat.id)
+                await placeholder.edit_text(
+                    answer, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+                )
+            except Exception as e:
+                config.log.exception(f"Web search failed: {e}")
+                await placeholder.edit_text(
+                    "Щось пішло не так під час пошуку. "
+                    "Можливо, інтернет теж втомився від ваших запитів 🤷‍♂️"
+                )
+            return
+
     # Check if PanBot should reply to this message
     if chat.id in config.PANBOT_CHAT_IDS:
         reply_decision = await should_reply_with_agent(msg)
@@ -230,21 +263,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if reply_decision:
                 response = await get_panbot_response(msg)
             else:
-                user_name = msg.from_user.full_name if msg.from_user else "Невідомий пасажир"
-                user_id = msg.from_user.id if msg.from_user else 0
-                user_message = msg.text or msg.caption or ""
-                custom_role = get_custom_role(chat.id)
-                is_creator = (user_id == 229953580)
-                skip_prompt = _skip_reply_template.render(user_message=user_message)
-                response = await panbot_engine.generate_response(
-                    message=msg,
-                    quoted_block="",
-                    traits_block=get_traits_block(user_id),
-                    user_name=user_name,
-                    user_message=skip_prompt,
-                    custom_role=custom_role,
-                    is_creator=is_creator,
-                )
+                # Рішення НЕ відповідати не повинно коштувати повного виклику LLM:
+                # раніше воно генерувало відмову тією ж моделлю, що й справжню
+                # відповідь, і при цьому не списувало квоту.
+                response = random.choice(SKIP_REPLY_MESSAGES)
             # Ensure response is a string before replying and storing
             response_str = str(response) if response is not None else ""
             formatted_response = format_telegram_html(response_str)

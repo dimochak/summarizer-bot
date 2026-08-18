@@ -15,6 +15,7 @@ dependencies = [
     "orjson==3.*",
     "psycopg[binary]>=3.2.10",
     "pydantic>=2.11.7",
+    "ddgs>=9.0.0",
     "python-dotenv==1.*",
     "python-telegram-bot==21.*",
     "pytz==2024.*",
@@ -28,4 +29,12 @@ dev = [
     "pre-commit>=4.3.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: потребує справжньої Postgres (див. XXL_TEST_DATABASE_URL)",
 ]
