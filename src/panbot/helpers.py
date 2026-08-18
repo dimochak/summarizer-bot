@@ -19,12 +19,6 @@ def get_quoted_block(message) -> str:
         pass
     return ""
 
-def format_telegram_html(text: str) -> str:
-    if not text:
-        return ""
-
-    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-
 def get_traits_block(user_id) -> str:
     traits = get_user_traits(user_id) if user_id else None
     if not traits:
@@ -69,6 +63,13 @@ def check_summary_request(text: str):
         
     return None
 
+# Тригери прямого звертання до бота.
+BOT_TRIGGERS = ["ботяндра", "ботяндрік", "пан бот"]
+
+# Прохання прокоментувати повідомлення, на яке відповідають.
+REPLY_TRIGGERS = ["прокоментуй", "що думаєш", "що скажеш", "твій коментар"]
+
+
 def should_reply(message):
     """Return True if bot should reply to the given message."""
     if not (message.text or message.caption):
@@ -84,9 +85,16 @@ def should_reply(message):
         if chat_id and is_bot_message(chat_id, reply_to_message_id):
             return True
 
+        # Прохання прокоментувати ЧУЖЕ повідомлення. Свого часу цей блок
+        # закоментували під час переходу на LLM-рішення, і бот замовк на такі
+        # репліки: should_reply лишився жорстким гейтом ПЕРЕД агентом.
+        # Тут ми лише пропускаємо повідомлення далі — відповідати чи ні,
+        # вирішує should_reply_by_agent.
+        if any(trigger in text for trigger in REPLY_TRIGGERS):
+            return True
+
     # Check for trigger words (initial contact)
-    bot_triggers = ["ботяндра", "ботяндрік", "пан бот"]
-    if any(trigger in text for trigger in bot_triggers):
+    if any(trigger in text for trigger in BOT_TRIGGERS):
         return True
 
     return False

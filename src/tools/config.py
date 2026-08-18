@@ -40,8 +40,14 @@ if _panbot_env:
     PANBOT_CHAT_IDS = {int(x.strip()) for x in _panbot_env.split(",") if x.strip()}
 
 
-# Combined set of all allowed chat IDs
+# Чати, налаштовані на AI-підсумки (мають конкретного провайдера).
 ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
+
+# Чати, в яких бот працює взагалі: зберігає повідомлення й може відповідати.
+# Ширше за ALLOWED_CHAT_IDS, бо чат може мати лише PanBot без щоденних підсумків.
+# Раніше on_message гейтився на ALLOWED_CHAT_IDS, тому чат, вказаний тільки в
+# PANBOT_CHAT_IDS, не отримував відповідей і не мав історії для контексту.
+KNOWN_CHAT_IDS = ALLOWED_CHAT_IDS | PANBOT_CHAT_IDS
 
 KYIV = ZoneInfo(TZ)
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -107,6 +113,7 @@ log.info(f"TZ={TZ}")
 log.info(f"GEMINI_CHAT_IDS={GEMINI_CHAT_IDS}")
 log.info(f"OPENAI_CHAT_IDS={OPENAI_CHAT_IDS}")
 log.info(f"ALLOWED_CHAT_IDS={ALLOWED_CHAT_IDS}")
+log.info(f"KNOWN_CHAT_IDS={KNOWN_CHAT_IDS}")
 log.info(f"DATABASE_URL={DATABASE_URL}")
 log.info(f"GEMINI_MODEL_NAME={GEMINI_MODEL_NAME}")
 log.info(f"OPENAI_MODEL_NAME={OPENAI_MODEL_NAME}")

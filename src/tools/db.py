@@ -80,17 +80,25 @@ def db():
 
 def init_db():
     with closing(db()) as conn, conn, closing(conn.cursor()) as cur:
-        # Migration: add custom_role column if it doesn't exist
-        try:
-            cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS custom_role TEXT")
-            cur.execute("ALTER TABLE photo_messages ADD COLUMN IF NOT EXISTS file_unique_id TEXT")
-            conn.commit()
-        except Exception:
-            pass
-
+        # Спершу базова схема, потім міграції: ALTER не має сенсу до CREATE TABLE.
         statements = [stmt.strip() for stmt in SCHEMA.split(';') if stmt.strip()]
         for stmt in statements:
             cur.execute(stmt)
+
+        # Міграції для БД, створених до появи цих колонок.
+        # Помилку тут НЕ глушимо: мовчазний `except: pass` означав, що бот
+        # стартував з несумісною схемою і падав пізніше на незрозумілому запиті.
+        migrations = [
+            "ALTER TABLE chats ADD COLUMN IF NOT EXISTS custom_role TEXT",
+            "ALTER TABLE photo_messages ADD COLUMN IF NOT EXISTS file_unique_id TEXT",
+        ]
+        for stmt in migrations:
+            try:
+                cur.execute(stmt)
+            except Exception:
+                config.log.exception("Міграція не застосувалась: %s", stmt)
+                raise
+        conn.commit()
     enable_daily_summaries_for_all_allowed_chats()
 
 def add_message(
