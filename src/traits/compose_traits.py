@@ -1,23 +1,70 @@
-import json
-import os
 from time import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from typing import Any
 
-from openai import AsyncOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
+from src.core.llm import get_structured_llm
 from src.tools import config
 from src.tools.db import _get_last_user_messages, upsert_user_traits
+
+
+class TraitTopic(BaseModel):
+    name: str
+    score: float = Field(ge=0.0, le=1.0)
+
+
+class TraitTone(BaseModel):
+    friendliness: float = Field(ge=0.0, le=1.0)
+    sarcasm: float = Field(ge=0.0, le=1.0)
+    toxicity: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class TraitStyle(BaseModel):
+    verbosity: float = Field(ge=0.0, le=1.0)
+    emoji_usage: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class TraitActivity(BaseModel):
+    hours_utc: list[int] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class TraitLanguage(BaseModel):
+    primary: str
+    notes: str = ""
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class UserTraits(BaseModel):
+    """Схема профілю користувача.
+
+    Раніше опис формату жив лише текстом у промпті, а відповідь розбиралась
+    ручним json.loads — без жодної валідації діапазонів.
+    """
+
+    summary: str
+    topics: list[TraitTopic] = Field(default_factory=list)
+    tone: TraitTone
+    style: TraitStyle
+    activity: TraitActivity
+    language: TraitLanguage
 
 KYIV = config.KYIV if hasattr(config, "KYIV") else ZoneInfo("Europe/Kyiv")
 
 MAX_PROMPT_TOKENS = 28000  # запас для моделей з довгим контекстом
-MODEL_NAME = os.getenv("TRAITS_LLM_MODEL", "gpt-5")
 TRAITS_VERSION = "v1-llm-500"
 
+# Модель тепер задається в config.TRAITS_MODEL_NAME (та сама змінна оточення
+# TRAITS_LLM_MODEL) і резолвиться фабрикою через purpose="traits".
+
+
 def _openai_enabled() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY"))
+    return bool(config.OPENAI_API_KEY)
 
 def _messages_to_snippet(rows: list[dict], max_chars_per_line: int = 500) -> str:
     lines: list[str] = []
@@ -89,25 +136,28 @@ async def refresh_user_traits_from_messages_llm(user_id: int, lang: str = "uk") 
 
     prompt = _build_traits_prompt(lang=lang)
 
-    async with AsyncOpenAI() as client:
-        resp = await client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "Ти формуєш компактний, структурований профіль traits на основі історії повідомлень одного користувача. Повертай тільки валідний JSON."},
-                {"role": "user", "content": f"{prompt}\n\nОсь останні повідомлення користувача (від нових до старих):\n{snippet}"},
-            ],
-            response_format={"type": "json_object"},
-        )
+    llm = get_structured_llm(UserTraits, purpose="traits")
+    messages = [
+        SystemMessage(
+            content="Ти формуєш компактний, структурований профіль traits на основі "
+                    "історії повідомлень одного користувача."
+        ),
+        HumanMessage(
+            content=f"{prompt}\n\nОсь останні повідомлення користувача "
+                    f"(від нових до старих):\n{snippet}"
+        ),
+    ]
 
     try:
-        content = (resp.choices[0].message.content or "").strip()
-        parsed = json.loads(content)
+        result = await llm.ainvoke(messages)
+        parsed = result.model_dump()
         parsed["version"] = TRAITS_VERSION
         parsed["sample_size"] = len(rows)
         parsed["updated_from"] = "llm_messages_last_500"
         upsert_user_traits(user_id, parsed, int(time()))
         return parsed
     except Exception as e:
-        config.log.exception(f"Traits JSON parsing failed: {e}")
+        config.log.exception(f"Traits generation failed: {e}")
         upsert_user_traits(user_id, traits, int(time()))
+        return traits
         return traits

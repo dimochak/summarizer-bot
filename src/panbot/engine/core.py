@@ -1,14 +1,13 @@
 from langchain_core.globals import set_debug
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from src.panbot.engine.llm import LLMEngine
+from src.core.llm import get_structured_llm
 from src.panbot.prompts.factory import get_chat_prompt, get_reply_decision_prompt
 from src.panbot.history.manager import ChatContextHistory
-from src.panbot.models import ReplyDecision
+from src.panbot.models import BotResponse, ReplyDecision
 from src.tools.config import log
 
 class PanBotEngine:
     def __init__(self, debug: bool = False):
-        self.llm_engine = LLMEngine()
         self.prompt = get_chat_prompt()
         if debug:
             set_debug(True)
@@ -16,8 +15,8 @@ class PanBotEngine:
     async def generate_response(self, message, quoted_block: str, traits_block: str, user_name: str, user_message: str, custom_role: str = None, is_creator: bool = False):
         chat_id = message.chat.id
         reply_to_id = message.reply_to_message.message_id if message.reply_to_message else None
-        llm = self.llm_engine.get_structured_llm(chat_id)
-        
+        llm = get_structured_llm(BotResponse, chat_id=chat_id, purpose="chat")
+
         chain = self.prompt | llm
         
         runnable_with_history = RunnableWithMessageHistory(
@@ -65,7 +64,7 @@ class PanBotEngine:
         has_trigger: bool,
     ) -> bool:
         chat_id = message.chat.id
-        llm = self.llm_engine.get_reply_decision_llm(chat_id).with_structured_output(ReplyDecision)
+        llm = get_structured_llm(ReplyDecision, chat_id=chat_id, purpose="decision")
         prompt = get_reply_decision_prompt().format(
             user_message=user_message,
             is_reply_to_bot=is_reply_to_bot,
