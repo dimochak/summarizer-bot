@@ -95,6 +95,11 @@ get_llm(chat_id, purpose)   # purpose: chat | decision | summary | vision | tran
 
 **Готово, коли:** `grep -rn "genai\.\|AsyncOpenAI(" src/` порожній, `google-generativeai` викинуто з `pyproject.toml`.
 
+**✅ ВИКОНАНО 2026-08-18** (коміт `ce3982e`). Понад заплановане: ручний парсинг JSON
+і регулярка для Gemini замінені на structured output зі схемами Pydantic;
+`search_web` винесено в `asyncio.to_thread` (блокував event loop); моделі vision
+і traits переїхали з коду в config.
+
 ### 1.2 Пул зʼєднань і async-БД
 
 Зараз кожен `db()` відкриває нове TCP-зʼєднання. На одну відповідь бота — близько 30 конектів
@@ -107,6 +112,29 @@ get_llm(chat_id, purpose)   # purpose: chat | decision | summary | vision | tran
 
 **Готово, коли:** відповідь бота робить ≤ 5 запитів до БД; навантажувальний тест не показує блокувань loop.
 
+**🟡 ЧАСТКОВО ВИКОНАНО 2026-08-18.** Зроблено:
+- `ConnectionPool` (синхронний) замість нового TCP-зʼєднання на кожен запит;
+  усі 29 місць переведено з `closing(db())` на контекст-менеджер
+- рекурсивний CTE замість циклу з окремим запитом на крок
+- загальний фон не вибирається, коли є тред
+- `close_pool()` на `post_shutdown`
+
+**Лишилось (1.2b):** сам перехід на `AsyncConnectionPool`. Пул прибрав вартість
+встановлення зʼєднання, але синхронний psycopg у async-хендлерах ДОСІ блокує
+event loop. Часткове помʼякшення вже є: `ChatContextHistory.messages` — sync-property,
+яку LangChain у async-гілці сам виносить у executor. А ось прямі виклики в
+`handlers.py` (`is_bot_message`, `get_custom_role`, `add_message`…) блокують.
+Найдешевший наступний крок — обгорнути їх у `asyncio.to_thread`, не переписуючи
+весь `db.py` на async.
+
+⚠️ **Рекурсивний CTE не перевірений проти живої Postgres.** Юніт-тести мокають
+`_fetch_reply_chain` цілком. Покриття є в `tests/test_db_cleanup_integration.py`,
+але воно пропускається без БД:
+
+```bash
+XXL_TEST_DATABASE_URL=postgresql://... uv run pytest -m integration
+```
+
 ### 1.3 Явний реплай має ігнорувати 48-годинне вікно
 
 Визнано багом 2026-08-18. `_fetch_reply_chain` (`src/panbot/history/manager.py:31`)
@@ -117,6 +145,10 @@ get_llm(chat_id, purpose)   # purpose: chat | decision | summary | vision | tran
 глибина вже обмежена окремо (`max_depth=25`).
 
 Робити разом з рекурсивним CTE з п. 1.2, щоб не переписувати цю функцію двічі.
+
+**✅ ВИКОНАНО 2026-08-18.** Ланцюжок реплаїв більше не обмежений часом; вікно
+в 48 годин лишилось тільки для загального фону чату. Тест
+`test_context_includes_replied_message_even_if_old` перестав бути `xfail`.
 
 **Готово, коли:** `test_context_includes_replied_message_even_if_old` перестає бути
 `xfail` і проходить.

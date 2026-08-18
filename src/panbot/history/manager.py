@@ -2,8 +2,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 import tiktoken
 from datetime import datetime, timezone, timedelta
-from contextlib import closing
-from src.tools.db import db, get_message_by_id
+from src.tools.db import db
 import src.tools.config as config
 
 try:
@@ -27,24 +26,26 @@ class ChatContextHistory(BaseChatMessageHistory):
 
     @property
     def messages(self) -> list[BaseMessage]:
-        # Визначаємо часові межі
-        now = datetime.now(timezone.utc)
-        start_time = int((now - timedelta(hours=48)).timestamp())
-        end_time = int(now.timestamp())
-
-        general_rows = self._fetch_messages(start_time, end_time)
-        thread_rows = self._fetch_thread_rows(start_time, end_time)
-
-        if not general_rows and not thread_rows:
-            return []
-
-        messages = []
-        used_tokens = 0
+        # Ланцюжок реплаїв тягнемо першим і БЕЗ часових меж: коли користувач явно
+        # відповідає на повідомлення, він хоче говорити саме про нього, скільки б
+        # днів тому воно не було. Вікно обмежує лише загальний фон чату.
+        thread_rows = self._fetch_thread_rows()
 
         if thread_rows:
             rows_for_budget = thread_rows
         else:
-            rows_for_budget = general_rows
+            # Загальний фон беремо тільки тоді, коли треду немає. Раніше цей запит
+            # виконувався завжди й тягнув до 2000 рядків, які потім викидались.
+            now = datetime.now(timezone.utc)
+            start_time = int((now - timedelta(hours=48)).timestamp())
+            end_time = int(now.timestamp())
+            rows_for_budget = self._fetch_messages(start_time, end_time)
+
+        if not rows_for_budget:
+            return []
+
+        messages = []
+        used_tokens = 0
 
         for row in rows_for_budget:  # від найновіших до найстаріших
             name = row["full_name"] or row["username"] or "Учасник"
@@ -69,11 +70,11 @@ class ChatContextHistory(BaseChatMessageHistory):
         messages.sort(key=lambda item: item[0])
         return [msg for _, msg in messages]
 
-    def _fetch_thread_rows(self, start_ts: int, end_ts: int) -> list[dict]:
+    def _fetch_thread_rows(self) -> list[dict]:
         if not self.reply_to_id:
             return []
 
-        chain = self._fetch_reply_chain(self.reply_to_id, start_ts, end_ts, max_depth=25)
+        chain = self._fetch_reply_chain(self.reply_to_id, max_depth=25)
         if not chain:
             return []
 
@@ -86,28 +87,46 @@ class ChatContextHistory(BaseChatMessageHistory):
 
         return chain[:1]
 
-    def _fetch_reply_chain(self, message_id: int, start_ts: int, end_ts: int, max_depth: int = 25) -> list[dict]:
-        chain = []
-        seen_ids = set()
-        current_id = message_id
+    def _fetch_reply_chain(self, message_id: int, max_depth: int = 25) -> list[dict]:
+        """Ланцюжок повідомлень угору за reply_to_message_id.
 
-        while current_id and current_id not in seen_ids and len(chain) < max_depth:
-            row = get_message_by_id(self.chat_id, current_id)
-            if not row:
-                break
-
-            seen_ids.add(current_id)
-            if row["ts_utc"] < start_ts or row["ts_utc"] > end_ts:
-                break
-
-            chain.append(row)
-            current_id = row.get("reply_to_message_id")
-
-        return chain
+        Один рекурсивний CTE замість циклу з окремим запитом на кожен крок:
+        раніше це було до 25 послідовних звернень до БД на одну відповідь бота,
+        кожне зі своїм TCP-з'єднанням.
+        """
+        try:
+            with db() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """WITH RECURSIVE chain AS (
+                           SELECT text, full_name, username, ts_utc, user_id,
+                                  message_id, reply_to_message_id, 1 AS depth
+                           FROM messages
+                           WHERE chat_id = %(chat_id)s AND message_id = %(message_id)s
+                           UNION ALL
+                           SELECT m.text, m.full_name, m.username, m.ts_utc, m.user_id,
+                                  m.message_id, m.reply_to_message_id, c.depth + 1
+                           FROM messages m
+                           JOIN chain c ON m.message_id = c.reply_to_message_id
+                           WHERE m.chat_id = %(chat_id)s AND c.depth < %(max_depth)s
+                       )
+                       SELECT text, full_name, username, ts_utc, user_id,
+                              message_id, reply_to_message_id
+                       FROM chain
+                       ORDER BY depth""",
+                    {
+                        "chat_id": self.chat_id,
+                        "message_id": message_id,
+                        "max_depth": max_depth,
+                    },
+                )
+                return list(cur.fetchall())
+        except Exception as e:
+            config.log.error(f"Error fetching reply chain from DB: {e}")
+            return []
 
     def _fetch_messages(self, start_ts: int, end_ts: int):
         try:
-            with closing(db()) as conn, closing(conn.cursor()) as cur:
+            with db() as conn, conn.cursor() as cur:
                 cur.execute(
                     """SELECT text, full_name, username, ts_utc, user_id, message_id, reply_to_message_id
                        FROM messages

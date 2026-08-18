@@ -1,6 +1,7 @@
-from contextlib import closing
-import psycopg
+import os
+from contextlib import contextmanager
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 from telegram import Chat
 from datetime import datetime, timedelta
 
@@ -73,13 +74,49 @@ CREATE INDEX IF NOT EXISTS idx_user_traits_updated ON user_traits(updated_at_utc
 """
 
 
+_pool: ConnectionPool | None = None
+
+
+def get_pool() -> ConnectionPool:
+    """Пул з'єднань, створюваний лениво при першому зверненні."""
+    global _pool
+    if _pool is None:
+        assert config.DATABASE_URL, "DATABASE_URL must be set to use Postgres"
+        _pool = ConnectionPool(
+            config.DATABASE_URL,
+            min_size=1,
+            max_size=int(os.getenv("DB_POOL_MAX_SIZE", "10")),
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
+    return _pool
+
+
+def close_pool() -> None:
+    """Закриває пул. Потрібно тестам і коректному завершенню процесу."""
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
+
+@contextmanager
 def db():
-    assert config.DATABASE_URL, "DATABASE_URL must be set to use Postgres"
-    return psycopg.connect(config.DATABASE_URL, row_factory=dict_row)
+    """З'єднання з пулу.
+
+    Раніше кожен виклик відкривав НОВЕ з'єднання з Postgres. На одну відповідь
+    бота припадало близько 30 конектів: is_bot_message, get_custom_role,
+    get_user_traits, вибірка історії, ланцюжок реплаїв і два add_message.
+
+    Транзакція комітиться на виході з блоку, тож явні conn.commit() всередині
+    лишаються коректними, але вже не обов'язкові.
+    """
+    with get_pool().connection() as conn:
+        yield conn
 
 
 def init_db():
-    with closing(db()) as conn, conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         # Спершу базова схема, потім міграції: ALTER не має сенсу до CREATE TABLE.
         statements = [stmt.strip() for stmt in SCHEMA.split(';') if stmt.strip()]
         for stmt in statements:
@@ -104,7 +141,7 @@ def init_db():
 def add_message(
     chat_id, message_id, user_id, username, full_name, text, reply_to_message_id, ts_utc
 ):
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """INSERT INTO messages
                (chat_id, message_id, user_id, username, full_name, text, reply_to_message_id, ts_utc)
@@ -126,7 +163,7 @@ def add_message(
 
 def ensure_chat_record(chat: Chat, *, enable_default: int = 1):
     title = chat.title or chat.username or str(chat.id)
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO chats(chat_id, title, enabled) VALUES (%s, %s, %s) ON CONFLICT (chat_id) DO NOTHING",
             (chat.id, title, enable_default),
@@ -159,13 +196,13 @@ def enable_daily_summaries_for_all_allowed_chats():
 
 
 def get_enabled_chat_ids() -> list[int]:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT chat_id FROM chats WHERE enabled=1")
         return [r["chat_id"] for r in cur.fetchall()]
 
 
 def get_panbot_usage(user_id: int, chat_id: int, date: str) -> int:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT count FROM panbot_limits WHERE user_id=%s AND chat_id=%s AND date=%s",
             (user_id, chat_id, date),
@@ -175,7 +212,7 @@ def get_panbot_usage(user_id: int, chat_id: int, date: str) -> int:
 
 
 def increment_panbot_usage(user_id: int, chat_id: int, date: str) -> int:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """INSERT INTO panbot_limits (user_id, chat_id, date, count)
                VALUES (%s, %s, %s, 1)
@@ -190,13 +227,13 @@ def increment_panbot_usage(user_id: int, chat_id: int, date: str) -> int:
 
 
 def reset_panbot_usage_for_date(date: str):
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM panbot_limits WHERE date=%s", (date,))
         conn.commit()
 
 
 def is_bot_message(chat_id: int, message_id: int) -> bool:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT user_id FROM messages WHERE chat_id=%s AND message_id=%s",
             (chat_id, message_id),
@@ -205,7 +242,7 @@ def is_bot_message(chat_id: int, message_id: int) -> bool:
         return row is not None and row["user_id"] == config.BOT_USER_ID
 
 def get_message_by_id(chat_id: int, message_id: int) -> dict | None:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT text, full_name, username, ts_utc, user_id, message_id, reply_to_message_id
                FROM messages
@@ -215,7 +252,7 @@ def get_message_by_id(chat_id: int, message_id: int) -> dict | None:
         return cur.fetchone()
 
 def upsert_pet_photo(chat_id: int, message_id: int, ts_utc: int, species: str, confidence: float, file_id: str | None, created_at_utc: int):
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """INSERT INTO pet_photos (chat_id, message_id, ts_utc, species, confidence, file_id, created_at_utc)
                VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -230,7 +267,7 @@ def upsert_pet_photo(chat_id: int, message_id: int, ts_utc: int, species: str, c
         conn.commit()
 
 def get_pet_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -> list[dict]:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT chat_id, message_id, ts_utc, species, confidence, file_id
                FROM pet_photos
@@ -242,7 +279,7 @@ def get_pet_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -
 
 
 def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_id: str, file_unique_id: str | None = None):
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """INSERT INTO photo_messages (chat_id, message_id, ts_utc, file_id, file_unique_id)
                VALUES (%s, %s, %s, %s, %s)
@@ -259,7 +296,7 @@ def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_id: st
 def get_duplicate_photo_message_id(chat_id: int, file_unique_id: str, exclude_message_id: int | None = None) -> int | None:
     if not file_unique_id:
         return None
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         query = "SELECT message_id FROM photo_messages WHERE chat_id=%s AND file_unique_id=%s"
         params = [chat_id, file_unique_id]
         if exclude_message_id:
@@ -271,7 +308,7 @@ def get_duplicate_photo_message_id(chat_id: int, file_unique_id: str, exclude_me
         return row["message_id"] if row else None
 
 def get_photo_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -> list[dict]:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT chat_id, message_id, ts_utc, file_id
                FROM photo_messages
@@ -284,7 +321,7 @@ def get_photo_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int)
 
 def upsert_user_traits(user_id: int, traits_json: dict, updated_at_utc: int):
     import json as _json
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """INSERT INTO user_traits (user_id, traits_json, updated_at_utc)
                VALUES (%s, %s::jsonb, %s)
@@ -297,14 +334,14 @@ def upsert_user_traits(user_id: int, traits_json: dict, updated_at_utc: int):
 
 
 def get_custom_role(chat_id: int) -> str | None:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT custom_role FROM chats WHERE chat_id=%s", (chat_id,))
         row = cur.fetchone()
         return row["custom_role"] if row else None
 
 
 def set_custom_role(chat_id: int, role: str | None):
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE chats SET custom_role=%s WHERE chat_id=%s",
             (role, chat_id),
@@ -313,14 +350,14 @@ def set_custom_role(chat_id: int, role: str | None):
 
 
 def get_user_traits(user_id: int) -> dict | None:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT traits_json FROM user_traits WHERE user_id=%s", (user_id,))
         row = cur.fetchone()
         return row["traits_json"] if row else None
 
 
 def _get_last_user_messages(user_id: int, limit: int = 500) -> list[dict]:
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT chat_id, message_id, ts_utc, username, full_name, text
                FROM messages
@@ -340,7 +377,7 @@ def cleanup_old_data(days: int):
     # date in panbot_limits is stored as TEXT 'YYYY-MM-DD'
     cutoff_date = cutoff_dt.strftime("%Y-%m-%d")
 
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         # Cleanup messages
         cur.execute("DELETE FROM messages WHERE ts_utc < %s", (cutoff_ts,))
         deleted_messages = cur.rowcount

@@ -81,3 +81,39 @@ def test_cleanup_removes_only_data_older_than_retention(live_db):
 
     assert remaining_messages == ["new message"]
     assert remaining_limits == 1
+
+
+def test_reply_chain_cte_walks_up_and_ignores_age(live_db):
+    """Рекурсивний CTE з ChatContextHistory проти справжньої Postgres.
+
+    Юніт-тести мокають _fetch_reply_chain цілком, тож сам SQL перевіряється
+    лише тут: коректність рекурсії, обмеження глибини й те, що вік
+    повідомлень на ланцюжок не впливає.
+    """
+    from src.panbot.history.manager import ChatContextHistory
+
+    ancient = int((datetime.now(config.KYIV) - timedelta(days=400)).timestamp())
+
+    with live_db() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM messages WHERE chat_id = %s", (TEST_CHAT_ID,))
+        # 1 <- 2 <- 3: третє відповідає на друге, друге на перше
+        for message_id, reply_to, text in (
+            (1, None, "корінь"),
+            (2, 1, "середина"),
+            (3, 2, "листок"),
+        ):
+            cur.execute(
+                """INSERT INTO messages (chat_id, message_id, ts_utc, text, reply_to_message_id)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (TEST_CHAT_ID, message_id, ancient, text, reply_to),
+            )
+        conn.commit()
+
+    history = ChatContextHistory(chat_id=TEST_CHAT_ID, current_message_id=4, reply_to_id=3)
+    chain = history._fetch_reply_chain(3)
+
+    # Від точки входу вгору до кореня, попри вік у 400 днів.
+    assert [r["text"] for r in chain] == ["листок", "середина", "корінь"]
+
+    assert len(history._fetch_reply_chain(3, max_depth=2)) == 2

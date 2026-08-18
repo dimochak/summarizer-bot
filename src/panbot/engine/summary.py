@@ -1,5 +1,4 @@
 from datetime import datetime, timezone, timedelta
-from contextlib import closing
 from src.tools.db import db
 import src.tools.config as config
 from src.summarizer.summarizer import build_messages_snippet, request_summary, ChatSummary
@@ -38,7 +37,7 @@ class SummaryEngine:
             return "Хотів зробити підсумок, але ваші теревені настільки беззмістовні, що навіть мій ШІ здався 🤖"
 
     def _fetch_last_n_messages(self, chat_id: int, n: int):
-        with closing(db()) as conn, closing(conn.cursor()) as cur:
+        with db() as conn, conn.cursor() as cur:
             cur.execute(
                 """SELECT text, full_name, username, ts_utc, user_id, message_id, reply_to_message_id
                    FROM messages
@@ -50,7 +49,7 @@ class SummaryEngine:
             return rows[::-1]  # До хронологічного порядку
 
     def _fetch_messages_since(self, chat_id: int, start_ts: int):
-        with closing(db()) as conn, closing(conn.cursor()) as cur:
+        with db() as conn, conn.cursor() as cur:
             cur.execute(
                 """SELECT text, full_name, username, ts_utc, user_id, message_id, reply_to_message_id
                    FROM messages

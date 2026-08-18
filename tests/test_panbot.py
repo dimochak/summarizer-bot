@@ -143,37 +143,53 @@ def test_context_includes_bot_messages(monkeypatch):
     assert messages[1].content == "Я бот"
     assert isinstance(messages[2], HumanMessage)
 
-@pytest.mark.xfail(
-    reason="_fetch_reply_chain обрізає ланцюжок вікном у 48 годин (manager.py:31), тож "
-           "відповідь на старіше повідомлення дає боту нульовий контекст саме про те "
-           "повідомлення, на яке відповідають. Тест описує бажану поведінку.",
-    strict=False,
-)
 def test_context_includes_replied_message_even_if_old(monkeypatch):
-    from src.panbot.history.manager import ChatContextHistory
-    from src.tools.db import get_message_by_id
-    from langchain_core.messages import HumanMessage
+    """Явний реплай має підтягувати повідомлення незалежно від його віку.
 
-    # Mock DB to return empty for recent messages
+    ts_utc=10 — це 1970 рік, тобто далеко поза 48-годинним вікном, яке
+    обмежує загальний фон чату.
+    """
+    from src.panbot.history.manager import ChatContextHistory
+
     def mock_fetch(self, start, end):
         return []
-    
-    # Mock DB to return the old message
-    def mock_get_msg(chat_id, message_id):
+
+    def mock_chain(self, message_id, max_depth=25):
         if message_id == 1:
-            return {"text": "Старе повідомлення", "full_name": "Old User", "username": "old", "ts_utc": 10, "user_id": 999, "message_id": 1, "reply_to_message_id": None}
-        return None
+            return [{"text": "Старе повідомлення", "full_name": "Old User", "username": "old", "ts_utc": 10, "user_id": 999, "message_id": 1, "reply_to_message_id": None}]
+        return []
 
     monkeypatch.setattr(ChatContextHistory, "_fetch_messages", mock_fetch)
-    import src.panbot.history.manager as history_mod
-    monkeypatch.setattr(history_mod, "get_message_by_id", mock_get_msg)
-    
+    monkeypatch.setattr(ChatContextHistory, "_fetch_reply_chain", mock_chain)
+
     # User replies to message ID 1
     history = ChatContextHistory(chat_id=1, current_message_id=4, reply_to_id=1)
     messages = history.messages
-    
+
     assert len(messages) == 1
     assert messages[0].content == "Old User: Старе повідомлення"
+
+
+def test_general_context_not_fetched_when_thread_exists(monkeypatch):
+    """Загальний фон не тягнемо, коли є тред — раніше запит на 2000 рядків
+    виконувався завжди, а результат викидався."""
+    from src.panbot.history.manager import ChatContextHistory
+
+    calls = []
+
+    def mock_fetch(self, start, end):
+        calls.append((start, end))
+        return []
+
+    def mock_chain(self, message_id, max_depth=25):
+        return [{"text": "У треді", "full_name": "User", "username": "u", "ts_utc": 100, "user_id": 5, "message_id": 1, "reply_to_message_id": None}]
+
+    monkeypatch.setattr(ChatContextHistory, "_fetch_messages", mock_fetch)
+    monkeypatch.setattr(ChatContextHistory, "_fetch_reply_chain", mock_chain)
+
+    history = ChatContextHistory(chat_id=1, current_message_id=4, reply_to_id=1)
+    assert len(history.messages) == 1
+    assert calls == []
 
 def test_should_reply_on_comment_request(monkeypatch):
     # Reply to some user (not bot) but asking to comment
