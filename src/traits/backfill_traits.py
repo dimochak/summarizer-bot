@@ -1,6 +1,5 @@
 import asyncio
 import os
-from contextlib import closing
 from time import time
 
 from src.tools.db import db, init_db
@@ -11,7 +10,7 @@ def _get_unique_user_ids(limit: int | None = None) -> list[int]:
     """
     Повертає унікальні user_id з таблиці messages (без NULL).
     """
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         sql = "SELECT DISTINCT user_id FROM messages WHERE user_id IS NOT NULL"
         if limit:
             sql += " LIMIT %s"

@@ -1,5 +1,4 @@
 from datetime import datetime, timezone, time as dtime
-from contextlib import closing
 import random
 
 from telegram import Update, Chat, Message
@@ -497,7 +496,7 @@ async def cmd_enable_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     ensure_chat_record(chat)
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("UPDATE chats SET enabled=1 WHERE chat_id=%s", (chat.id,))
         conn.commit()
     await update.effective_message.reply_text(
@@ -517,7 +516,7 @@ async def cmd_disable_summaries(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     ensure_chat_record(chat)
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("UPDATE chats SET enabled=0 WHERE chat_id=%s", (chat.id,))
         conn.commit()
     await update.effective_message.reply_text(
@@ -537,7 +536,7 @@ async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
         provider_status = "❌ Not configured"
 
     # Check if summaries are enabled in database
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT enabled FROM chats WHERE chat_id=%s", (chat.id,))
         row = cur.fetchone()
     enabled = row and row["enabled"] == 1

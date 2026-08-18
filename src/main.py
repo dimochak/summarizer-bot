@@ -1,7 +1,7 @@
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
 import src.tools.config as config
-from src.tools.db import init_db
+from src.tools.db import close_pool, init_db
 from src.tools.handlers import (
     on_message,
     on_photo,
@@ -20,10 +20,22 @@ async def post_init(application):
     config.BOT_USER_ID = bot_info.id
     config.log.info(f"Bot initialized with ID: {config.BOT_USER_ID}")
 
+
+async def post_shutdown(application):
+    close_pool()
+    config.log.info("Database pool closed.")
+
+
 def main():
     init_db()
 
-    app = ApplicationBuilder().token(config.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    app = (
+        ApplicationBuilder()
+        .token(config.TELEGRAM_BOT_TOKEN)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
 
     app.add_handler(
         MessageHandler(~filters.StatusUpdate.ALL &

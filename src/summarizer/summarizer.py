@@ -1,6 +1,5 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from contextlib import closing
 from html import escape
 
 import tiktoken
@@ -243,7 +242,7 @@ async def summarize_day(
 
     start_utc = start_local.astimezone(ZoneInfo("UTC"))
     end_utc = end_local.astimezone(ZoneInfo("UTC"))
-    with closing(db()) as conn, closing(conn.cursor()) as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT * FROM messages WHERE chat_id=%s AND ts_utc>=%s AND ts_utc<%s ORDER BY ts_utc ASC",
             (chat.id, utc_ts(start_utc), utc_ts(end_utc)),
