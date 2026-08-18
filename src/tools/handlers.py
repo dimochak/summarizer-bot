@@ -240,7 +240,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query:
             placeholder = await msg.reply_text(random.choice(SEARCH_PLACEHOLDERS))
             try:
-                results = search_web(query)
+                results = await search_web(query)
                 answer = await summarize_results(query, results, chat.id)
                 await placeholder.edit_text(
                     answer, parse_mode=ParseMode.HTML, disable_web_page_preview=True

@@ -44,15 +44,20 @@ def no_real_llm(monkeypatch):
 
     Раніше test_father_sets_custom_role мовчки робив реальний HTTP-запит, бо його
     повідомлення не збігалося з тригером у коді і виконання провалювалось у генерацію.
+
+    Блокуємо саме генерацію, а не конструктор: створення клієнта мережу не чіпає,
+    і тести самої фабрики мають право його створювати.
     """
-    from src.panbot.engine.llm import LLMEngine
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_openai import ChatOpenAI
 
     def _forbidden(*args, **kwargs):
         raise RuntimeError(
-            "Тест спробував викликати справжній LLM. "
-            "Замокай PanBotEngine.generate_response або відповідний метод LLMEngine."
+            "Тест спробував викликати справжній LLM. Замокай виклик на рівні "
+            "PanBotEngine/споживача або підстав фейковий клієнт."
         )
 
-    monkeypatch.setattr(LLMEngine, "get_llm", _forbidden)
-    monkeypatch.setattr(LLMEngine, "get_structured_llm", _forbidden)
-    monkeypatch.setattr(LLMEngine, "get_reply_decision_llm", _forbidden)
+    for client in (ChatOpenAI, ChatGoogleGenerativeAI):
+        for method in ("_generate", "_agenerate", "_stream", "_astream"):
+            if hasattr(client, method):
+                monkeypatch.setattr(client, method, _forbidden)

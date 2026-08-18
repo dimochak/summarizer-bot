@@ -1,29 +1,37 @@
-import re
-import orjson as json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from contextlib import closing
 from html import escape
 
-import google.generativeai as genai
 import tiktoken
-from openai import AsyncOpenAI
+from pydantic import BaseModel, Field
 
 from telegram import Chat
 from telegram.ext import ContextTypes
 
 import src.tools.config as config
+from src.core.llm import get_structured_llm, resolve_provider
 from src.tools.db import db
 from src.tools.utils import utc_ts, clean_text, message_link, user_link
 
-genai.configure(api_key=config.GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel(
-    config.GEMINI_MODEL_NAME,
-    generation_config={"response_mime_type": "application/json"},
-)
-openai_client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
-
 MAX_TOPICS_NUM = 7
+
+
+class Topic(BaseModel):
+    short_title: str = Field(description="≤7 слів, змістовна назва теми")
+    first_message_id: int = Field(description="message_id першого повідомлення теми")
+    initiator_user_id: int = Field(description="user_id автора першого повідомлення теми")
+    summary: str = Field(description="1–2 речення підсумку у відповідному стилі")
+
+
+class DaySummary(BaseModel):
+    topics: list[Topic] = Field(default_factory=list)
+
+
+class ChatSummary(BaseModel):
+    """Вільний підсумок довільного відрізка чату (запит «підсумуй останні N…»)."""
+
+    summary: str = Field(description="Короткий іронічний підсумок українською")
 
 
 def get_toxicity_prompt(toxicity_level: int) -> str:
@@ -192,51 +200,28 @@ def build_messages_snippet(
     return "\n".join(lines)
 
 
-async def get_openai_summary(prompt: str) -> dict:
-    """Get summary from OpenAI"""
-    config.log.info(f"OpenAI prompt: {prompt}")
-    try:
-        response = await openai_client.chat.completions.create(
-            model=config.OPENAI_MODEL_NAME,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Ти — надзвичайно саркастичний та їдкий помічник, що групує повідомлення чату у теми за календарний день. Твоя відповідь ОБОВ'ЯЗКОВО повинна бути у форматі JSON. Якщо ти робиш загальний підсумок, використовуй поле 'summary'. Якщо групуєш за темами, використовуй поле 'topics'.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
+async def request_summary(prompt: str, chat_id: int, schema):
+    """Один шлях до моделі для будь-якого підсумку.
 
-        content = response.choices[0].message.content
-        return json.loads(content)
-    except Exception as e:
-        config.log.exception("OpenAI API error: %s", e)
-        raise
+    Раніше тут було дві майже однакові функції на сирих SDK, кожна зі своїм
+    парсингом JSON — у Gemini-версії JSON виколупувався регуляркою з тексту.
+    """
+    llm = get_structured_llm(schema, chat_id=chat_id, purpose="summary")
+    return await llm.ainvoke(prompt)
 
 
-async def get_gemini_summary(prompt: str) -> dict:
-    """Get summary from Gemini"""
-    try:
-        config.log.info(f"Gemini prompt: {prompt}")
-        resp = gemini_model.generate_content(prompt)
-        raw = resp.text or ""
-        m = re.search(r"\{.*\}", raw, re.S)
-        data = json.loads(m.group(0) if m else raw)
-        return data
-    except Exception as e:
-        config.log.exception("Gemini API error: %s", e)
-        raise
+def _looks_like_safety_block(error: Exception) -> bool:
+    """Чи схожа помилка на спрацювання фільтра безпеки, а не на збій конфігурації.
 
-
-def should_use_openai(chat_id: int) -> bool:
-    """Determine if we should use OpenAI for this chat"""
-    return chat_id in config.OPENAI_CHAT_IDS
-
-
-def should_use_gemini(chat_id: int) -> bool:
-    """Determine if we should use Gemini for this chat"""
-    return chat_id in config.GEMINI_CHAT_IDS
+    Від цього залежить лише текст фінального повідомлення користувачу:
+    драбинка токсичності однаково пробує знизити рівень при будь-якій помилці.
+    """
+    text = str(error).lower()
+    markers = (
+        "safety", "blocked", "block_reason", "content_filter", "content filter",
+        "finish_reason", "valid `part`", "recitation", "prohibited",
+    )
+    return any(marker in text for marker in markers)
 
 
 def is_chat_configured(chat_id: int) -> bool:
@@ -272,20 +257,7 @@ async def summarize_day(
     snippet = build_messages_snippet(rows)
     day_str = (start_local.date()).strftime("%d.%m.%Y")
 
-    # Determine which AI provider to use
-    use_openai = should_use_openai(chat.id)
-    use_gemini = should_use_gemini(chat.id)
-
-    if use_openai:
-        provider_name = "OpenAI"
-    elif use_gemini:
-        provider_name = "Gemini"
-    else:
-        config.log.error(
-            f"Chat {chat.id} is in ALLOWED_CHAT_IDS but not in any provider-specific list"
-        )
-        return None
-
+    provider_name = resolve_provider(chat.id, "summary")
     config.log.info(f"Using {provider_name} for chat {chat.id}")
 
     # Try from requested toxicity_level down to 0 until we get a response (fallback on safety blocks)
@@ -304,12 +276,9 @@ async def summarize_day(
                 f"Current toxicity level: {level} (requested: {requested_level})"
             )
             config.log.info(f"Current number of tokens: {len(_encoder.encode(prompt))}")
-            if use_openai:
-                data = await get_openai_summary(prompt)
-            else:
-                data = await get_gemini_summary(prompt)
 
-            topics = data.get("topics", [])
+            result = await request_summary(prompt, chat.id, DaySummary)
+            topics = [t.model_dump() for t in result.topics]
             if topics:
                 toxicity_level = level  # record the actual level that worked
                 break
@@ -317,24 +286,19 @@ async def summarize_day(
             config.log.warning(
                 f"{provider_name} returned no topics at toxicity level {level}, trying lower level..."
             )
-        except ValueError as e:
-            # Heuristic: detect safety filter blocking or similar conditions and retry with lower level
-            if (
-                "response to contain a valid `Part`" in str(e)
-                or "finish_reason" in str(e)
-                or "content_filter" in str(e)
-            ):
+        except Exception as e:
+            # Пробуємо нижчий рівень при БУДЬ-ЯКІЙ помилці: раніше умова спиралась на
+            # текст винятку конкретного SDK, і після переходу на LangChain такі рядки
+            # все одно перестали б збігатися. Тип помилки впливає лише на те, яке
+            # повідомлення побачить користувач, якщо драбинка вичерпається.
+            if _looks_like_safety_block(e):
                 safety_blocked_encountered = True
                 config.log.warning(
-                    f"{provider_name} blocked request due to safety policy (toxicity level: {level}). Retrying with lower level..."
+                    f"{provider_name} likely blocked request by safety policy "
+                    f"(toxicity level: {level}). Retrying with lower level..."
                 )
-                continue
             else:
-                config.log.exception(f"{provider_name} summary error: %s", e)
-                return None
-        except Exception as e:
-            config.log.exception(f"{provider_name} summary error: %s", e)
-            return None
+                config.log.exception(f"{provider_name} summary error at level {level}: %s", e)
 
     if not topics:
         if safety_blocked_encountered:

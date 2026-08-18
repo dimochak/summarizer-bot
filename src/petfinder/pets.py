@@ -1,17 +1,26 @@
 import os
+from typing import Literal
 
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 from telegram.ext import ContextTypes
-from openai import AsyncOpenAI
-import json
 
+from src.core.llm import get_structured_llm
 from src.tools import config
 
 # Configuration
 PET_CONFIDENCE_THRESHOLD = float(os.getenv("PET_CONFIDENCE_THRESHOLD", "0.6"))
 SARCASM_LEVEL = 7
 
+
+class PetDetection(BaseModel):
+    species: Literal["cat", "dog", "none"] = Field(description="Хто на фото")
+    confidence: float = Field(ge=0.0, le=1.0, description="Впевненість від 0 до 1")
+    caption: str = Field(description="Одне коротке іронічне речення українською")
+
+
 def _openai_enabled() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY"))
+    return bool(config.OPENAI_API_KEY)
 
 
 def _build_joint_prompt(sarcasm_level: int = SARCASM_LEVEL, lang: str = "uk") -> str:
@@ -31,32 +40,9 @@ def _build_joint_prompt(sarcasm_level: int = SARCASM_LEVEL, lang: str = "uk") ->
         "Якщо ні — species='none'. Потім дай короткий іронічний підпис українською (1 речення),"
         " без емодзі, без форматування, без згадок про ШІ чи моделі."
     )
-    output_spec = (
-        "Відповідай СТРОГО у форматі JSON:\n"
-        '{\n'
-        '  "species": "cat" | "dog" | "none",\n'
-        '  "confidence": number (0..1),\n'
-        '  "caption": "one short sentence in Ukrainian"\n'
-        '}\n'
-        "Без додаткового тексту поза JSON."
-    )
-    return f"{instr_uk}\n\n{tone}\n\n{output_spec}"
-
-
-def _parse_joint_json(text: str) -> tuple[str, float, str]:
-    try:
-        data = json.loads(text.strip())
-        species = str(data.get("species", "none")).lower()
-        if species not in ("cat", "dog", "none"):
-            species = "none"
-        conf = float(data.get("confidence", 0.0))
-        if conf < 0 or conf > 1:
-            conf = 0.0
-        caption = str(data.get("caption") or "").strip()
-        return species, conf, caption
-    except Exception as e:
-        config.log.exception(f"JSON parsing failed: {e}")
-        return "none", 0.0, ""
+    # Опис формату не потрібен: схему PetDetection нав'язує сам structured output,
+    # а раніше тут дублювався ще й ручний парсер JSON.
+    return f"{instr_uk}\n\n{tone}"
 
 
 async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = SARCASM_LEVEL) -> tuple[str, float, str]:
@@ -81,30 +67,28 @@ async def detect_and_caption_from_url(image_url: str, sarcasm_level: int = SARCA
         generic_caption = "Фото ніби натякає, що люди тут раби для тварин."
         return "none", 0.0, generic_caption
 
-    model = "gpt-4o-mini"
     prompt = _build_joint_prompt(sarcasm_level=sarcasm_level, lang="uk")
 
-    async with AsyncOpenAI() as client:
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Ти іронічний помічник, який допомагає знаходити фото котів або собак в чаті. Завжди відповідай у форматі JSON"
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ],
-                }
-            ],
-            response_format={"type": "json_object"},
-        )
+    llm = get_structured_llm(PetDetection, purpose="vision")
+    messages = [
+        SystemMessage(
+            content="Ти іронічний помічник, який допомагає знаходити фото котів або собак в чаті."
+        ),
+        HumanMessage(
+            content=[
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": image_url}},
+            ]
+        ),
+    ]
 
-    text = (resp.choices[0].message.content or "").strip()
-    return _parse_joint_json(text)
+    try:
+        result = await llm.ainvoke(messages)
+    except Exception as e:
+        config.log.exception(f"Pet detection failed: {e}")
+        return "none", 0.0, ""
+
+    return result.species, result.confidence, result.caption.strip()
 
 
 async def detect_and_caption_by_file_id(context: ContextTypes.DEFAULT_TYPE, file_id: str,
