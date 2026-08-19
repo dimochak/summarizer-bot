@@ -70,11 +70,11 @@ def test_schedule_daily_adds_job(monkeypatch):
 
     scheduler.schedule_daily(app)
 
-    # Два джоби: щоденний підсумок і прибирання БД
-    assert job_queue.run_daily.call_count == 2
+    # Три джоби: щоденний підсумок, прибирання БД і оновлення профілів
+    assert job_queue.run_daily.call_count == 3
 
     jobs = {c.kwargs["name"]: c.kwargs for c in job_queue.run_daily.call_args_list}
-    assert set(jobs) == {"daily_summary_all", "db_cleanup"}
+    assert set(jobs) == {"daily_summary_all", "db_cleanup", "traits_refresh"}
 
     summary = jobs["daily_summary_all"]
     assert isinstance(summary["time"], dtime)
@@ -83,3 +83,8 @@ def test_schedule_daily_adds_job(monkeypatch):
     cleanup = jobs["db_cleanup"]
     assert isinstance(cleanup["time"], dtime)
     assert (cleanup["time"].hour, cleanup["time"].minute) == (4, 0)
+
+    traits = jobs["traits_refresh"]
+    assert isinstance(traits["time"], dtime)
+    # Після прибирання БД, щоб працювати по підчищеній таблиці messages
+    assert traits["time"].hour > cleanup["time"].hour

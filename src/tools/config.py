@@ -19,6 +19,13 @@ REPLY_DECISION_OPENAI_MODEL_NAME = os.getenv("REPLY_DECISION_OPENAI_MODEL_NAME",
 # Раніше traits читав власну змінну оточення просто в модулі.
 TRAITS_MODEL_NAME = os.getenv("TRAITS_LLM_MODEL", "gpt-5")
 
+# Профіль користувача оновлюється не частіше, ніж раз на стільки днів.
+# Джоб ходить щодня, але бере лише тих, у кого профіль застарів, — так
+# навантаження розмазується, а не падає одним місячним піком.
+TRAITS_REFRESH_DAYS = int(os.getenv("TRAITS_REFRESH_DAYS", "30"))
+TRAITS_REFRESH_BATCH = int(os.getenv("TRAITS_REFRESH_BATCH", "50"))
+TRAITS_REFRESH_CONCURRENCY = int(os.getenv("TRAITS_REFRESH_CONCURRENCY", "3"))
+
 # Bot's special user ID for identifying bot messages
 BOT_USER_ID = -1  # Special ID for bot messages
 MESSAGES_PER_USER = 10

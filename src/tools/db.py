@@ -297,6 +297,28 @@ def get_user_traits(user_id: int) -> dict | None:
         return row["traits_json"] if row else None
 
 
+def get_user_ids_with_stale_traits(cutoff_ts: int, limit: int) -> list[int]:
+    """Користувачі, чий профіль застарів або якого ще немає.
+
+    Беремо лише тих, хто є в messages: там діє retention, тож це живі учасники,
+    а не всі, кого бот колись бачив.
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT m.user_id
+               FROM messages m
+               LEFT JOIN user_traits t ON t.user_id = m.user_id
+               WHERE m.user_id IS NOT NULL
+                 AND m.user_id <> %s
+               GROUP BY m.user_id, t.updated_at_utc
+               HAVING t.updated_at_utc IS NULL OR t.updated_at_utc < %s
+               ORDER BY t.updated_at_utc NULLS FIRST
+               LIMIT %s""",
+            (config.BOT_USER_ID, cutoff_ts, limit),
+        )
+        return [r["user_id"] for r in cur.fetchall()]
+
+
 def _get_last_user_messages(user_id: int, limit: int = 500) -> list[dict]:
     with db() as conn, conn.cursor() as cur:
         cur.execute(
