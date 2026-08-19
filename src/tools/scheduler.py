@@ -3,9 +3,10 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, Application
 
 import src.tools.config as config
-from src.tools.db import get_enabled_chat_ids
+from src.tools.db import get_enabled_chat_ids, cleanup_old_data
 from src.summarizer.summarizer import summarize_day
 from src.tools.utils import local_midnight_bounds
+from src.traits.compose_traits import refresh_stale_user_traits
 
 
 async def send_daily_summary_to_chat(app: Application,
@@ -47,6 +48,21 @@ async def send_all_summaries_job(context: ContextTypes.DEFAULT_TYPE):
     config.log.info(f"Daily summaries sent to {len(configured_chat_ids)} chats")
 
 
+async def cleanup_db_job(context: ContextTypes.DEFAULT_TYPE):
+    config.log.info("Starting scheduled database cleanup...")
+    cleanup_old_data(config.DB_RETENTION_DAYS)
+
+
+async def refresh_traits_job(context: ContextTypes.DEFAULT_TYPE):
+    """Оновлює профілі користувачів, старші за TRAITS_REFRESH_DAYS.
+
+    Джоб щоденний, але кожен окремий профіль оновлюється раз на місяць:
+    так місячна вартість розмазується рівномірно, а не падає одним піком.
+    """
+    config.log.info("Starting scheduled traits refresh...")
+    await refresh_stale_user_traits()
+
+
 def schedule_daily(app: Application):
     hour = 23
     minute = 59
@@ -57,3 +73,24 @@ def schedule_daily(app: Application):
         name="daily_summary_all",
     )
     config.log.info(f"Daily job scheduled for {hour}:{minute}, {config.TZ}")
+
+    # Schedule database cleanup at 04:00 AM Kyiv time
+    cleanup_hour = 4
+    app.job_queue.run_daily(
+        cleanup_db_job,
+        time=dtime(cleanup_hour, 0, tzinfo=config.KYIV),
+        name="db_cleanup"
+    )
+    config.log.info(f"Database cleanup job scheduled for {cleanup_hour:02d}:00, {config.TZ}")
+
+    # Після прибирання: працюємо вже по підчищеній таблиці messages.
+    traits_hour = 5
+    app.job_queue.run_daily(
+        refresh_traits_job,
+        time=dtime(traits_hour, 0, tzinfo=config.KYIV),
+        name="traits_refresh",
+    )
+    config.log.info(
+        f"Traits refresh job scheduled for {traits_hour:02d}:00, {config.TZ} "
+        f"(profile TTL: {config.TRAITS_REFRESH_DAYS} days)"
+    )

@@ -362,3 +362,6 @@ $RECYCLE.BIN/
 data/
 
 # End of https://www.toptal.com/developers/gitignore/api/python,jupyternotebooks,pycharm+all,virtualenv,windows,macos,linux,git
+
+# Claude Code worktrees та локальний стан
+.claude/

@@ -12,7 +12,19 @@ OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 TZ = os.getenv("TZ", "Europe/Kyiv")
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-flash")
-OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-5.2")
+REPLY_DECISION_GEMINI_MODEL_NAME = os.getenv("REPLY_DECISION_GEMINI_MODEL_NAME", "")
+REPLY_DECISION_OPENAI_MODEL_NAME = os.getenv("REPLY_DECISION_OPENAI_MODEL_NAME", "")
+
+# Раніше traits читав власну змінну оточення просто в модулі.
+TRAITS_MODEL_NAME = os.getenv("TRAITS_LLM_MODEL", "gpt-5")
+
+# Профіль користувача оновлюється не частіше, ніж раз на стільки днів.
+# Джоб ходить щодня, але бере лише тих, у кого профіль застарів, — так
+# навантаження розмазується, а не падає одним місячним піком.
+TRAITS_REFRESH_DAYS = int(os.getenv("TRAITS_REFRESH_DAYS", "30"))
+TRAITS_REFRESH_BATCH = int(os.getenv("TRAITS_REFRESH_BATCH", "50"))
+TRAITS_REFRESH_CONCURRENCY = int(os.getenv("TRAITS_REFRESH_CONCURRENCY", "3"))
 
 # Bot's special user ID for identifying bot messages
 BOT_USER_ID = -1  # Special ID for bot messages
@@ -38,12 +50,22 @@ if _panbot_env:
     PANBOT_CHAT_IDS = {int(x.strip()) for x in _panbot_env.split(",") if x.strip()}
 
 
-# Combined set of all allowed chat IDs
+# Чати, налаштовані на AI-підсумки (мають конкретного провайдера).
 ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
+
+# Чати, в яких бот працює взагалі: зберігає повідомлення й може відповідати.
+# Ширше за ALLOWED_CHAT_IDS, бо чат може мати лише PanBot без щоденних підсумків.
+# Раніше on_message гейтився на ALLOWED_CHAT_IDS, тому чат, вказаний тільки в
+# PANBOT_CHAT_IDS, не отримував відповідей і не мав історії для контексту.
+KNOWN_CHAT_IDS = ALLOWED_CHAT_IDS | PANBOT_CHAT_IDS
 
 KYIV = ZoneInfo(TZ)
 DATABASE_URL = os.getenv("DATABASE_URL")
-LOG_FILENAME = os.path.join("/app/data", "bot.log")
+DB_RETENTION_DAYS = int(os.getenv("DB_RETENTION_DAYS", "30"))
+LANGCHAIN_DEBUG = os.getenv("LANGCHAIN_DEBUG", "false").lower() == "true"
+LOG_FILENAME = os.getenv("LOG_FILENAME", "bot.log")
+
+# LOG_FILENAME = 'bot.log'
 
 logger.remove()
 logger.add(
@@ -101,8 +123,11 @@ log.info(f"TZ={TZ}")
 log.info(f"GEMINI_CHAT_IDS={GEMINI_CHAT_IDS}")
 log.info(f"OPENAI_CHAT_IDS={OPENAI_CHAT_IDS}")
 log.info(f"ALLOWED_CHAT_IDS={ALLOWED_CHAT_IDS}")
+log.info(f"KNOWN_CHAT_IDS={KNOWN_CHAT_IDS}")
 log.info(f"DATABASE_URL={DATABASE_URL}")
 log.info(f"GEMINI_MODEL_NAME={GEMINI_MODEL_NAME}")
 log.info(f"OPENAI_MODEL_NAME={OPENAI_MODEL_NAME}")
+log.info(f"REPLY_DECISION_GEMINI_MODEL_NAME={REPLY_DECISION_GEMINI_MODEL_NAME}")
+log.info(f"REPLY_DECISION_OPENAI_MODEL_NAME={REPLY_DECISION_OPENAI_MODEL_NAME}")
 log.info(f"PANBOT_CHAT_IDS={PANBOT_CHAT_IDS}")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")
