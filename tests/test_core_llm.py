@@ -19,7 +19,6 @@ def chat_routing(monkeypatch):
     monkeypatch.setattr(config, "GEMINI_MODEL_NAME", "gemini-test")
     monkeypatch.setattr(config, "REPLY_DECISION_OPENAI_MODEL_NAME", "")
     monkeypatch.setattr(config, "REPLY_DECISION_GEMINI_MODEL_NAME", "")
-    monkeypatch.setattr(config, "VISION_MODEL_NAME", "vision-test")
     monkeypatch.setattr(config, "TRAITS_MODEL_NAME", "traits-test")
 
 
@@ -41,13 +40,8 @@ def test_unknown_chat_falls_back_to_openai_without_gemini_key(monkeypatch):
 
 
 @pytest.mark.parametrize("chat_id", [111, 222, 999, None])
-def test_vision_is_always_openai(chat_id):
-    """Vision історично лише на OpenAI — налаштування чату його не перемикає."""
-    assert llm_mod.resolve_provider(chat_id, "vision") == "openai"
-
-
-@pytest.mark.parametrize("chat_id", [111, 222, 999, None])
 def test_traits_is_always_openai(chat_id):
+    """Traits історично лише на OpenAI — налаштування чату його не перемикає."""
     assert llm_mod.resolve_provider(chat_id, "traits") == "openai"
 
 
@@ -62,7 +56,6 @@ def test_decision_uses_dedicated_model_when_set(monkeypatch):
 
 
 def test_purpose_specific_models():
-    assert llm_mod.resolve_model_name("openai", "vision") == "vision-test"
     assert llm_mod.resolve_model_name("openai", "traits") == "traits-test"
     assert llm_mod.resolve_model_name("openai", "summary") == "gpt-test"
     assert llm_mod.resolve_model_name("gemini", "summary") == "gemini-test"
@@ -71,7 +64,7 @@ def test_purpose_specific_models():
 def test_missing_key_raises_with_clear_message(monkeypatch):
     monkeypatch.setattr(config, "OPENAI_API_KEY", "")
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
-        llm_mod.get_llm(purpose="vision")
+        llm_mod.get_llm(purpose="traits")
 
 
 def test_get_llm_builds_expected_client():

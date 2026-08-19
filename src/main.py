@@ -10,7 +10,6 @@ from src.tools.handlers import (
     cmd_enable_summaries,
     cmd_disable_summaries,
     cmd_status_summaries,
-    cmd_find_all_pets,
 )
 from src.tools.scheduler import schedule_daily
 
@@ -51,7 +50,6 @@ def main():
     app.add_handler(CommandHandler("enable_summaries", cmd_enable_summaries))
     app.add_handler(CommandHandler("disable_summaries", cmd_disable_summaries))
     app.add_handler(CommandHandler("status_summaries", cmd_status_summaries))
-    app.add_handler(CommandHandler("petfinder", cmd_find_all_pets))
 
     schedule_daily(app)
     config.log.info("Bot started.")

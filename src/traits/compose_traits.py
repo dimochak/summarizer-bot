@@ -160,4 +160,3 @@ async def refresh_user_traits_from_messages_llm(user_id: int, lang: str = "uk") 
         config.log.exception(f"Traits generation failed: {e}")
         upsert_user_traits(user_id, traits, int(time()))
         return traits
-        return traits

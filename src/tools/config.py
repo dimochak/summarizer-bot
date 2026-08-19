@@ -16,9 +16,7 @@ OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-5.2")
 REPLY_DECISION_GEMINI_MODEL_NAME = os.getenv("REPLY_DECISION_GEMINI_MODEL_NAME", "")
 REPLY_DECISION_OPENAI_MODEL_NAME = os.getenv("REPLY_DECISION_OPENAI_MODEL_NAME", "")
 
-# Раніше жили розкиданими: vision був захардкожений у petfinder/pets.py,
-# traits читав власну змінну оточення просто в модулі.
-VISION_MODEL_NAME = os.getenv("VISION_MODEL_NAME", "gpt-4o-mini")
+# Раніше traits читав власну змінну оточення просто в модулі.
 TRAITS_MODEL_NAME = os.getenv("TRAITS_LLM_MODEL", "gpt-5")
 
 # Bot's special user ID for identifying bot messages

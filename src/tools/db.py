@@ -39,20 +39,6 @@ CREATE TABLE IF NOT EXISTS panbot_limits (
 
 CREATE INDEX IF NOT EXISTS idx_panbot_limits_date ON panbot_limits(date);
     
-CREATE TABLE IF NOT EXISTS pet_photos (
-    chat_id BIGINT NOT NULL,
-    message_id BIGINT NOT NULL,
-    ts_utc BIGINT NOT NULL,
-    species TEXT NOT NULL,           -- 'cat' | 'dog'
-    confidence REAL NOT NULL,        -- 0..1
-    file_id TEXT,
-    created_at_utc BIGINT NOT NULL,
-    PRIMARY KEY (chat_id, message_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_pet_photos_chat_ts ON pet_photos(chat_id, ts_utc);
-    
-
 CREATE TABLE IF NOT EXISTS photo_messages (
     chat_id BIGINT NOT NULL,
     message_id BIGINT NOT NULL,
@@ -251,33 +237,6 @@ def get_message_by_id(chat_id: int, message_id: int) -> dict | None:
         )
         return cur.fetchone()
 
-def upsert_pet_photo(chat_id: int, message_id: int, ts_utc: int, species: str, confidence: float, file_id: str | None, created_at_utc: int):
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO pet_photos (chat_id, message_id, ts_utc, species, confidence, file_id, created_at_utc)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)
-               ON CONFLICT (chat_id, message_id)
-               DO UPDATE SET species=EXCLUDED.species,
-                             confidence=EXCLUDED.confidence,
-                             file_id=EXCLUDED.file_id,
-                             ts_utc=EXCLUDED.ts_utc,
-                             created_at_utc=EXCLUDED.created_at_utc""",
-            (chat_id, message_id, ts_utc, species, confidence, file_id, created_at_utc),
-        )
-        conn.commit()
-
-def get_pet_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -> list[dict]:
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """SELECT chat_id, message_id, ts_utc, species, confidence, file_id
-               FROM pet_photos
-               WHERE chat_id=%s AND ts_utc >= %s AND ts_utc < %s
-               ORDER BY ts_utc ASC""",
-            (chat_id, start_ts_utc, end_ts_utc),
-        )
-        return list(cur.fetchall())
-
-
 def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_id: str, file_unique_id: str | None = None):
     with db() as conn, conn.cursor() as cur:
         cur.execute(
@@ -306,18 +265,6 @@ def get_duplicate_photo_message_id(chat_id: int, file_unique_id: str, exclude_me
         cur.execute(query, params)
         row = cur.fetchone()
         return row["message_id"] if row else None
-
-def get_photo_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -> list[dict]:
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """SELECT chat_id, message_id, ts_utc, file_id
-               FROM photo_messages
-               WHERE chat_id=%s AND ts_utc >= %s AND ts_utc < %s
-               ORDER BY ts_utc ASC""",
-            (chat_id, start_ts_utc, end_ts_utc),
-        )
-        return list(cur.fetchall())
-
 
 def upsert_user_traits(user_id: int, traits_json: dict, updated_at_utc: int):
     import json as _json
@@ -383,9 +330,6 @@ def cleanup_old_data(days: int):
         deleted_messages = cur.rowcount
 
         # Cleanup pet photos
-        cur.execute("DELETE FROM pet_photos WHERE ts_utc < %s", (cutoff_ts,))
-        deleted_pets = cur.rowcount
-
         # Cleanup photo messages
         cur.execute("DELETE FROM photo_messages WHERE ts_utc < %s", (cutoff_ts,))
         deleted_photos = cur.rowcount
@@ -398,6 +342,6 @@ def cleanup_old_data(days: int):
 
     config.log.info(
         f"Database cleanup completed (retention: {days} days). "
-        f"Deleted: {deleted_messages} messages, {deleted_pets} pet photos, "
+        f"Deleted: {deleted_messages} messages, "
         f"{deleted_photos} photo messages, {deleted_limits} limit records."
     )
