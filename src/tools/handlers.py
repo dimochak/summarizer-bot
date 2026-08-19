@@ -282,11 +282,8 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ts = msg.date or datetime.now(timezone.utc)
 
     if msg.photo:
-        largest = msg.photo[-1]
-        file_id = largest.file_id
-        file_unique_id = largest.file_unique_id
+        file_unique_id = msg.photo[-1].file_unique_id
     elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):
-        file_id = msg.document.file_id
         file_unique_id = msg.document.file_unique_id
     else:
         config.log.warning(f"on_photo -- neither photo nor image document: message_id {msg.message_id}")
@@ -302,7 +299,6 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=chat.id,
             message_id=msg.message_id,
             ts_utc=ts_utc_int,
-            file_id=file_id,
             file_unique_id=file_unique_id,
         )
         config.log.info(f"Photo/document stored: chat {chat.id} msg {msg.message_id}")

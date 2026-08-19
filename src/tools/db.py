@@ -43,7 +43,6 @@ CREATE TABLE IF NOT EXISTS photo_messages (
     chat_id BIGINT NOT NULL,
     message_id BIGINT NOT NULL,
     ts_utc BIGINT NOT NULL,
-    file_id TEXT NOT NULL,
     file_unique_id TEXT,
     PRIMARY KEY (chat_id, message_id)
 );
@@ -114,6 +113,18 @@ def init_db():
         migrations = [
             "ALTER TABLE chats ADD COLUMN IF NOT EXISTS custom_role TEXT",
             "ALTER TABLE photo_messages ADD COLUMN IF NOT EXISTS file_unique_id TEXT",
+            # photo_messages.file_id більше не пишеться (його читав лише petfinder),
+            # але в наявних БД колонка має NOT NULL і без цього INSERT впав би.
+            # Дані не чіпаємо — знімаємо лише обмеження. Умова обов'язкова: на
+            # чистій БД колонки вже немає, і беззастережний ALTER зупинив би старт.
+            """DO $$
+               BEGIN
+                   IF EXISTS (SELECT 1 FROM information_schema.columns
+                              WHERE table_name = 'photo_messages'
+                                AND column_name = 'file_id') THEN
+                       ALTER TABLE photo_messages ALTER COLUMN file_id DROP NOT NULL;
+                   END IF;
+               END $$""",
         ]
         for stmt in migrations:
             try:
@@ -212,12 +223,6 @@ def increment_panbot_usage(user_id: int, chat_id: int, date: str) -> int:
         return new_count
 
 
-def reset_panbot_usage_for_date(date: str):
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM panbot_limits WHERE date=%s", (date,))
-        conn.commit()
-
-
 def is_bot_message(chat_id: int, message_id: int) -> bool:
     with db() as conn, conn.cursor() as cur:
         cur.execute(
@@ -227,27 +232,16 @@ def is_bot_message(chat_id: int, message_id: int) -> bool:
         row = cur.fetchone()
         return row is not None and row["user_id"] == config.BOT_USER_ID
 
-def get_message_by_id(chat_id: int, message_id: int) -> dict | None:
+def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_unique_id: str | None = None):
     with db() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT text, full_name, username, ts_utc, user_id, message_id, reply_to_message_id
-               FROM messages
-               WHERE chat_id = %s AND message_id = %s""",
-            (chat_id, message_id),
-        )
-        return cur.fetchone()
-
-def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_id: str, file_unique_id: str | None = None):
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO photo_messages (chat_id, message_id, ts_utc, file_id, file_unique_id)
-               VALUES (%s, %s, %s, %s, %s)
+            """INSERT INTO photo_messages (chat_id, message_id, ts_utc, file_unique_id)
+               VALUES (%s, %s, %s, %s)
                ON CONFLICT (chat_id, message_id)
-               DO UPDATE SET 
-               ts_utc=EXCLUDED.ts_utc, 
-               file_id=EXCLUDED.file_id, 
+               DO UPDATE SET
+               ts_utc=EXCLUDED.ts_utc,
                file_unique_id=EXCLUDED.file_unique_id""",
-            (chat_id, message_id, ts_utc, file_id, file_unique_id),
+            (chat_id, message_id, ts_utc, file_unique_id),
         )
         conn.commit()
 
