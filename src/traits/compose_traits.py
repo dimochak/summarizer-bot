@@ -1,3 +1,4 @@
+import asyncio
 from time import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -8,7 +9,11 @@ from pydantic import BaseModel, Field
 
 from src.core.llm import get_structured_llm
 from src.tools import config
-from src.tools.db import _get_last_user_messages, upsert_user_traits
+from src.tools.db import (
+    _get_last_user_messages,
+    get_user_ids_with_stale_traits,
+    upsert_user_traits,
+)
 
 
 class TraitTopic(BaseModel):
@@ -160,3 +165,44 @@ async def refresh_user_traits_from_messages_llm(user_id: int, lang: str = "uk") 
         config.log.exception(f"Traits generation failed: {e}")
         upsert_user_traits(user_id, traits, int(time()))
         return traits
+
+async def refresh_stale_user_traits(
+    lang: str = "uk",
+    now_ts: int | None = None,
+) -> int:
+    """Оновлює профілі, які застаріли (за замовчуванням старші за 30 днів).
+
+    Раніше traits оновлювались ЛИШЕ ручним запуском scripts-подібного
+    backfill_traits.py, тож get_traits_block читав те, що колись залишив
+    разовий прогін. Тепер це робить щоденний джоб, беручи за раз обмежену
+    пачку користувачів.
+
+    Повертає кількість успішно оновлених профілів.
+    """
+    if not _openai_enabled():
+        config.log.warning("Traits refresh skipped: OPENAI_API_KEY не заданий")
+        return 0
+
+    now_ts = now_ts if now_ts is not None else int(time())
+    cutoff = now_ts - config.TRAITS_REFRESH_DAYS * 86400
+
+    user_ids = get_user_ids_with_stale_traits(cutoff, config.TRAITS_REFRESH_BATCH)
+    if not user_ids:
+        config.log.info("Traits refresh: усі профілі свіжі")
+        return 0
+
+    sem = asyncio.Semaphore(config.TRAITS_REFRESH_CONCURRENCY)
+    succeeded = 0
+
+    async def worker(uid: int) -> None:
+        nonlocal succeeded
+        async with sem:
+            try:
+                await refresh_user_traits_from_messages_llm(uid, lang=lang)
+                succeeded += 1
+            except Exception as e:
+                config.log.exception(f"Traits refresh failed for user_id={uid}: {e}")
+
+    await asyncio.gather(*(worker(uid) for uid in user_ids))
+    config.log.info(f"Traits refresh: оновлено {succeeded} з {len(user_ids)} профілів")
+    return succeeded

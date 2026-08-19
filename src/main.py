@@ -1,3 +1,4 @@
+from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
 import src.tools.config as config
@@ -53,7 +54,18 @@ def main():
 
     schedule_daily(app)
     config.log.info("Bot started.")
-    app.run_polling(close_loop=False)
+
+    # Явний перелік апдейтів замість «що Telegram запам'ятав минулого разу».
+    # getUpdates без allowed_updates успадковує попереднє налаштування токена,
+    # тож бот міг отримувати типи, яких ніхто не замовляв — зокрема реакції.
+    #
+    # edited_message свідомо НЕ включаємо: Update.effective_message його
+    # покриває, тому редагування старого повідомлення повторно проходило
+    # через on_message і бот відповідав на нього вдруге.
+    app.run_polling(
+        allowed_updates=[Update.MESSAGE, Update.CHANNEL_POST],
+        close_loop=False,
+    )
 
 
 if __name__ == "__main__":
