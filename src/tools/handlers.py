@@ -11,9 +11,6 @@ from src.tools.db import (
     ensure_chat_record,
     add_message,
     upsert_photo_message,
-    get_photo_messages_between,
-    get_pet_messages_between,
-    upsert_pet_photo,
     get_duplicate_photo_message_id,
     get_panbot_usage,
     increment_panbot_usage,
@@ -33,18 +30,7 @@ from src.panbot.helpers import (
 from src.panbot.formatting import format_telegram_html
 from src.panbot.exceptions import SarcasmLimitExceeded
 from src.summarizer.summarizer import summarize_day
-from src.petfinder.pets import detect_and_caption_by_file_id, PET_CONFIDENCE_THRESHOLD
-from src.tools.utils import utc_ts, local_midnight_bounds, message_link
-from src.websearch.search import FAS_PATTERN, search_web, summarize_results
-
-SEARCH_PLACEHOLDERS = [
-    "🔍 Зараз, зараз... Полізу в інтернет, бо своїх мізків не вистачає на таке.",
-    "🌐 О, ви хочете, щоб я ще й гуглив за вас? Ну добре, чекайте...",
-    "🔎 Запускаю пошук... Сподіваюся, результат буде розумнішим за запит.",
-    "🧠 Мої нейрони перенаправляються в інтернет. Тримайтесь.",
-    "🕵️ Йду шукати. Якщо не повернусь — шукайте мене в кеші Google.",
-    "📡 Підключаюсь до всесвітньої павутини. Павуки вже чекають.",
-]
+from src.tools.utils import utc_ts, message_link
 
 INITIAL_PLACEHOLDERS = [
     "⏳ Окей, я подивлюся, що ви там набазікали. Тільки не очікуйте нічого геніального.",
@@ -231,26 +217,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (msg.reply_to_message and msg.reply_to_message.message_id) or None,
         utc_ts(ts.astimezone(timezone.utc)),
     )
-
-    # Check for "ботяндра, <query>, фас" search pattern
-    fas_match = FAS_PATTERN.search(text) if text else None
-    if fas_match:
-        query = fas_match.group(1).strip()
-        if query:
-            placeholder = await msg.reply_text(random.choice(SEARCH_PLACEHOLDERS))
-            try:
-                results = await search_web(query)
-                answer = await summarize_results(query, results, chat.id)
-                await placeholder.edit_text(
-                    answer, parse_mode=ParseMode.HTML, disable_web_page_preview=True
-                )
-            except Exception as e:
-                config.log.exception(f"Web search failed: {e}")
-                await placeholder.edit_text(
-                    "Щось пішло не так під час пошуку. "
-                    "Можливо, інтернет теж втомився від ваших запитів 🤷‍♂️"
-                )
-            return
 
     # Check if PanBot should reply to this message
     if chat.id in config.PANBOT_CHAT_IDS:
@@ -548,134 +514,3 @@ async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
     await update.effective_message.reply_text(status_text)
-
-async def cmd_find_all_pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Command: /petfinder
-    Fetch today's photos from DB, run detection on unseen ones, cache results, and return links.
-    Now sends a placeholder and uses LLM to generate short ironic captions for each detected pet.
-    """
-    if not update.effective_chat or not update.effective_user:
-        return
-    chat = update.effective_chat
-
-    placeholder_texts = [
-        "⏳ Аналізую галерею: пес вже зголоднів від очікування, але тримається як чемпіон.",
-        "🧐 Збираю дос'є на хвостатих: головний підозрюваний — пес, мотив — печиво.",
-        "🔍 Перевіряю фото на наявність псячого ентузіазму — рівень зашкалює, як завжди.",
-        "🐾 Відслідковую сліди лап до миски — сліди свіжі, справа очевидна.",
-        "📦 Розпаковую пакет з «хто хороший хлопчик?» — відповідь передбачувана.",
-        "🧭 Навожу фокус на песика: він навів фокус на повідець і має плани.",
-        "🧪 Тест на «добрий пес» пройдено: показники підскакують при слові «прогулянка».",
-        "🏷️ Звіряю ярлики: «гав», «ще раз гав», «а тепер за смаколик».",
-        "🧊 Охолоджую камеру — пес надто гарячий до уваги і камери.",
-        "🎛️ Підкручую повзунки слухняності — ага, звісно, як тільки з’явиться білка.",
-        "🧩 Складаю пазл з пікселів: шматок із вухами знайшовся біля дверей.",
-        "🧮 Порахував подихи щастя — калькулятор попросив перерву.",
-        "🧱 Якщо це пес, то він — фортеця на лапах: охороняє, але впустить за смаколик.",
-        "🏛️ Передаю справу до Верховного Пес-суду: вирок — «ще одну прогулянку».",
-        "🧿 Перевіряю на магію: пес знову змусив усіх усміхнутися — підозріло ефективно.",
-        "🧪 Аналіз показує: 90% радість, 10% дуже терміново треба на вулицю.",
-        "🧰 Калібрую детектор «хороший хлопчик/дівчинка» — стрілка уперлася вправо.",
-        "🪪 Ідентифікую власника: пес володіє настроєм, ви — повідцем.",
-        "🧬 Розшифровую ДНК погляду: «я нічого не робив, але раптом печиво?»",
-        "🧭 Маршрут простий: від «хто це?» до «де мій м’яч і ще 200 фото».",
-        "🧵 Розмотую клубок доказів — кіт уже сидить зверху і судить нас поглядом.",
-        "🧩 Останній шматок пазлу зник — кіт з’їв його репутаційно.",
-        "🏷️ Котяча версія ярликів: «мур», «ігнор», «обмірковую переворот».",
-        "🧊 Камера розплавилася від котячої зневаги — аварійне охолодження ввімкнено.",
-        "🎛️ Повзунок зверхності на максимум — кіт схвалив. Мовчки.",
-        "📡 «Мяу-FM» в ефірі: ведучий знову оголошує нас обслугою.",
-    ]
-    placeholder_message = await update.message.reply_text(random.choice(placeholder_texts))
-
-    now_local = datetime.now(config.KYIV)
-    start_local, end_local = local_midnight_bounds(now_local)
-    start_ts = utc_ts(start_local.astimezone(timezone.utc))
-    end_ts = utc_ts(end_local.astimezone(timezone.utc))
-
-    try:
-        photos = get_photo_messages_between(chat.id, start_ts, end_ts)
-    except Exception as e:
-        config.log.exception(f"get_photo_messages_between failed: {e}")
-        await placeholder_message.edit_text("Сталася помилка при отриманні фотографій.")
-        return
-
-    if not photos:
-        await placeholder_message.edit_text("За сьогодні фото не надсилали.")
-        return
-
-    try:
-        detected = get_pet_messages_between(chat.id, start_ts, end_ts)
-    except Exception as e:
-        config.log.exception(f"get_photo_messages_between failed: {e}")
-        detected = []
-
-    detected_by_id = {(r["chat_id"], r["message_id"]): r for r in detected}
-    results_lines: list[str] = []
-
-    for r in detected:
-        if r["species"] in ("cat", "dog"):
-            link = message_link(chat, r["message_id"])
-            desc = None
-            file_id = None
-            try:
-                file_id = r.get("file_id") if isinstance(r, dict) else None
-            except Exception as e:
-                config.log.exception(f"Failure: {e}")
-                pass
-
-            if file_id:
-                try:
-                    _, _, caption = await detect_and_caption_by_file_id(context, file_id, sarcasm_level=5)
-                    desc = (caption or "").strip() or None
-                except Exception as e:
-                    config.log.exception(f'detect_and_caption failed for cached {r["chat_id"]}: {r["message_id"]}: {e}')
-
-            if not desc:
-                label = "кіт" if r["species"] == "cat" else "пес"
-                desc = f"{label} ({r['confidence']:.2f})"
-
-            results_lines.append(f"• {desc} — {link}")
-
-    for p in photos:
-        key = (p["chat_id"], p["message_id"])
-        if key in detected_by_id:
-            continue  # already processed
-
-        try:
-            species, conf, caption = await detect_and_caption_by_file_id(context, p["file_id"], sarcasm_level=5)
-        except Exception as e:
-            config.log.exception(f"photo detection failed for {key}: {e}")
-            continue
-
-        if species in ("cat", "dog") and conf >= PET_CONFIDENCE_THRESHOLD:
-            created_at_utc = utc_ts(datetime.now(timezone.utc))
-            try:
-                upsert_pet_photo(
-                    chat_id=p["chat_id"],
-                    message_id=p["message_id"],
-                    ts_utc=p["ts_utc"],
-                    species=species,
-                    confidence=conf,
-                    file_id=p["file_id"],
-                    created_at_utc=created_at_utc,
-                )
-            except Exception as e:
-                config.log.exception(f"upsert_pet_photo failed: {e}")
-
-            desc = (caption or "").strip()
-            if not desc:
-                label = "кіт" if species == "cat" else "пес"
-                desc = f"{label} ({conf:.2f})"
-
-            link = message_link(chat, p["message_id"])
-            results_lines.append(f"• {desc} — {link}")
-
-    if not results_lines:
-        await placeholder_message.edit_text("За сьогодні фото котів чи собак не знайдено.")
-        return
-
-    text = "Знайдені фото за сьогодні:\n" + "\n".join(results_lines)
-    await placeholder_message.edit_text(text, disable_web_page_preview=True)
-
