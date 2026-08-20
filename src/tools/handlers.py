@@ -1,5 +1,7 @@
-from datetime import datetime, timezone, time as dtime
+import asyncio
+import os
 import random
+from datetime import datetime, timezone, time as dtime
 
 from telegram import Update, Chat, Message
 from telegram.constants import ParseMode
@@ -105,6 +107,48 @@ FALLBACK_RESPONSES = [
 
 CREATOR_USER_ID = 229953580
 CUSTOM_ROLE_TRIGGER = "ботяндра, твоя нова роль"
+
+# Скільки чекати, перш ніж показати, що бот працює. Звичайна відповідь
+# укладається в кілька секунд, а пошук в інтернеті з читанням сторінки —
+# це десятки, і мовчання весь цей час виглядає як «бот завис».
+PLACEHOLDER_AFTER_SECONDS = float(os.getenv("PLACEHOLDER_AFTER_SECONDS", "5"))
+
+THINKING_PLACEHOLDERS = [
+    "🔍 Зараз, зараз... Полізу в інтернет, бо своїх мізків не вистачає на таке.",
+    "🌐 О, ви хочете, щоб я ще й гуглив за вас? Ну добре, чекайте...",
+    "🕵️ Йду шукати. Якщо не повернусь — шукайте мене в кеші Google.",
+    "📡 Підключаюсь до всесвітньої павутини. Павуки вже чекають.",
+    "🧠 Мої нейрони перенаправляються назовні. Тримайтесь.",
+    "⏳ Копаюсь. Це довше, ніж ваше питання того вартує.",
+]
+
+
+async def _respond_with_progress(message: Message) -> tuple[str, Message | None]:
+    """Готує відповідь і показує плейсхолдер, ЯКЩО вона забарилась.
+
+    Плейсхолдер не шлеться завжди: більшість реплік готові за кілька секунд,
+    і зайве повідомлення в чаті було б шумом. Він зʼявляється тільки тоді,
+    коли агент справді пішов у мережу.
+    """
+    task = asyncio.create_task(get_panbot_response(message))
+    done, _ = await asyncio.wait({task}, timeout=PLACEHOLDER_AFTER_SECONDS)
+
+    placeholder = None
+    if not done:
+        try:
+            placeholder = await message.reply_text(random.choice(THINKING_PLACEHOLDERS))
+        except Exception as e:
+            # Не змогли показати плейсхолдер — не привід втрачати відповідь.
+            config.log.warning(f"Could not send placeholder: {e}")
+
+    return await task, placeholder
+
+
+async def _send_or_edit(message: Message, placeholder: Message | None, text: str, **kwargs):
+    """Редагує плейсхолдер, якщо він є, інакше відповідає новим повідомленням."""
+    if placeholder is not None:
+        return await placeholder.edit_text(text, **kwargs)
+    return await message.reply_text(text, **kwargs)
 
 
 def _append_quota_notice(response: str, remaining: int) -> str:
@@ -242,9 +286,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if reply_decision is None:
             return
 
+        placeholder = None
         try:
             if reply_decision:
-                response = await get_panbot_response(msg)
+                response, placeholder = await _respond_with_progress(msg)
             else:
                 # Рішення НЕ відповідати не повинно коштувати повного виклику LLM:
                 # раніше воно генерувало відмову тією ж моделлю, що й справжню
@@ -253,7 +298,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Ensure response is a string before replying and storing
             response_str = str(response) if response is not None else ""
             formatted_response = format_telegram_html(response_str)
-            bot_message = await msg.reply_text(formatted_response, parse_mode=ParseMode.HTML)
+            bot_message = await _send_or_edit(
+                msg, placeholder, formatted_response, parse_mode=ParseMode.HTML
+            )
             bot_ts = bot_message.date
             if bot_ts.tzinfo is None:
                 bot_ts = bot_ts.replace(tzinfo=timezone.utc)
@@ -270,13 +317,17 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         except SarcasmLimitExceeded as e:
-            await msg.reply_text(str(e))
+            # Плейсхолдер уже міг вилетіти — тоді правимо його, а не лишаємо
+            # висіти з «шукаю…» назавжди.
+            await _send_or_edit(msg, placeholder, str(e))
 
         except Exception as e:
             config.log.exception(f"Error in PanBot response: {e}")
-            await msg.reply_text(
+            await _send_or_edit(
+                msg,
+                placeholder,
                 "Щось пішло не так з моїм сарказмом... "
-                "Можливо, ваше питання було занадто складним для мого штучного інтелекту 🤖"
+                "Можливо, ваше питання було занадто складним для мого штучного інтелекту 🤖",
             )
 
 
