@@ -1,10 +1,10 @@
 from langchain_core.globals import set_debug
-from langchain_core.runnables.history import RunnableWithMessageHistory
 from src.core.llm import get_structured_llm
 from src.panbot.prompts.factory import get_chat_prompt, get_reply_decision_prompt
 from src.panbot.history.manager import ChatContextHistory
 from src.panbot.models import BotResponse, ReplyDecision
 from src.tools.config import log
+from src.tools.db import db_call
 
 class PanBotEngine:
     def __init__(self, debug: bool = False):
@@ -18,19 +18,23 @@ class PanBotEngine:
         llm = get_structured_llm(BotResponse, chat_id=chat_id, purpose="chat")
 
         chain = self.prompt | llm
-        
-        runnable_with_history = RunnableWithMessageHistory(
-            chain,
-            lambda session_id: ChatContextHistory(
-                chat_id=chat_id, 
-                current_message_id=message.message_id,
-                reply_to_id=reply_to_id
-            ),
-            input_messages_key="user_message",
-            history_messages_key="history",
+
+        # Історію підставляємо самі, без RunnableWithMessageHistory. Той шар
+        # існував лише заради цієї підстановки: зворотний бік — дозапис
+        # відповіді в історію — у нас порожній, бо історія щоразу
+        # перезбирається з БД. Натомість він на КОЖНІЙ відповіді кидав
+        # ValueError у логи, намагаючись перетворити BotResponse на повідомлення.
+        history = ChatContextHistory(
+            chat_id=chat_id,
+            current_message_id=message.message_id,
+            reply_to_id=reply_to_id,
         )
+        # .messages — синхронна property, що ходить у БД: у потік її, щоб не
+        # блокувати event loop (раніше це робив за нас LangChain).
+        history_messages = await db_call(lambda: history.messages)
 
         input_data = {
+            "history": history_messages,
             "quoted_block": quoted_block,
             "traits_block": traits_block,
             "user_name": user_name,
@@ -40,18 +44,13 @@ class PanBotEngine:
             "facts_block": facts_block,
         }
         
-        log.info(f"Invoking PanBotEngine with custom_role: '{custom_role}'")
-        # To debug the full prompt, we can use the chain.invoke or format it
-        try:
-            formatted_prompt = self.prompt.format(**input_data, history=[])
-            log.debug(f"Formatted prompt (without history): {formatted_prompt}")
-        except Exception as e:
-            log.warning(f"Could not format prompt for logging: {e}")
-
-        result = await runnable_with_history.ainvoke(
-            input_data,
-            config={"configurable": {"session_id": str(chat_id)}},
+        log.info(
+            f"Invoking PanBotEngine for chat {chat_id}: "
+            f"custom_role='{custom_role}', history={len(history_messages)} msgs, "
+            f"facts={'yes' if facts_block else 'no'}"
         )
+
+        result = await chain.ainvoke(input_data)
 
         log.info(f"PanBotEngine result: {result.response}")
         return result.response

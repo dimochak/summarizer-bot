@@ -51,15 +51,18 @@ async def gather_facts(chat_id: int, user_message: str) -> str:
         config={"recursion_limit": config.AGENT_MAX_STEPS * 2},
     )
 
-    facts = (result["messages"][-1].content or "").strip()
-    if not facts or facts.upper().startswith(NO_FACTS_MARKER):
-        return ""
-
     used_tools = [
         call["name"]
         for message in result["messages"]
         for call in getattr(message, "tool_calls", None) or []
     ]
-    config.log.info(f"Agent used tools {used_tools} for chat {chat_id}")
 
+    facts = (result["messages"][-1].content or "").strip()
+    if not facts or facts.upper().startswith(NO_FACTS_MARKER):
+        # Логуємо і цей випадок: інакше з логів не видно, чи агент узагалі
+        # відпрацював, чи просто не був увімкнений для цього чату.
+        config.log.info(f"Agent: no facts needed for chat {chat_id} (tools: {used_tools})")
+        return ""
+
+    config.log.info(f"Agent used tools {used_tools} for chat {chat_id}")
     return facts
