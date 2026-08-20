@@ -112,20 +112,30 @@ get_llm(chat_id, purpose)   # purpose: chat | decision | summary | vision | tran
 
 **Готово, коли:** відповідь бота робить ≤ 5 запитів до БД; навантажувальний тест не показує блокувань loop.
 
-**🟡 ЧАСТКОВО ВИКОНАНО 2026-08-18.** Зроблено:
+**✅ ВИКОНАНО.** Зроблено:
 - `ConnectionPool` (синхронний) замість нового TCP-зʼєднання на кожен запит;
   усі 29 місць переведено з `closing(db())` на контекст-менеджер
 - рекурсивний CTE замість циклу з окремим запитом на крок
 - загальний фон не вибирається, коли є тред
 - `close_pool()` на `post_shutdown`
 
-**Лишилось (1.2b):** сам перехід на `AsyncConnectionPool`. Пул прибрав вартість
-встановлення зʼєднання, але синхронний psycopg у async-хендлерах ДОСІ блокує
-event loop. Часткове помʼякшення вже є: `ChatContextHistory.messages` — sync-property,
-яку LangChain у async-гілці сам виносить у executor. А ось прямі виклики в
-`handlers.py` (`is_bot_message`, `get_custom_role`, `add_message`…) блокують.
-Найдешевший наступний крок — обгорнути їх у `asyncio.to_thread`, не переписуючи
-весь `db.py` на async.
+**✅ 1.2b ВИКОНАНО 2026-08-20.** Обрано `asyncio.to_thread` замість переписування
+всього `db.py` на `AsyncConnectionPool`: `ConnectionPool` і так розрахований на
+багатопотокове використання, а каскад `async def` довелося б тягнути через
+`should_reply`, `get_traits_block` і далі по всіх викликах.
+
+Доданий `db_call(func, *args, **kwargs)` у `db.py` — єдина точка, через яку
+async-код звертається до синхронної БД. Переведені `handlers.py`, `scheduler.py`,
+`summarizer.py`, `engine/summary.py`, `compose_traits.py`.
+
+Заразом інлайновий SQL поїхав із хендлерів у `db.py`
+(`set_summaries_enabled`, `is_summaries_enabled`, `get_messages_between`,
+`get_last_messages`, `get_messages_since`), а приватні `_fetch_*` у `SummaryEngine`
+зникли як дублікати.
+
+`ChatContextHistory.messages` лишається sync-property свідомо: LangChain у
+async-гілці сам виносить її в executor через `run_in_executor` — перевірено
+в коді `BaseChatMessageHistory.aget_messages`.
 
 ⚠️ **Рекурсивний CTE не перевірений проти живої Postgres.** Юніт-тести мокають
 `_fetch_reply_chain` цілком. Покриття є в `tests/test_db_cleanup_integration.py`,

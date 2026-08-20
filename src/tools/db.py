@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import contextmanager
 from psycopg.rows import dict_row
@@ -83,6 +84,19 @@ def close_pool() -> None:
     if _pool is not None:
         _pool.close()
         _pool = None
+
+
+async def db_call(func, /, *args, **kwargs):
+    """Виконує синхронний запит до БД у окремому потоці.
+
+    psycopg тут синхронний, тож прямий виклик із async-хендлера блокує event
+    loop: поки йде запит, бот не обробляє нічого іншого в жодному чаті.
+    Пул зʼєднань прибрав вартість конекту, але не саме блокування.
+
+    ConnectionPool розрахований на багатопотокове використання — кожен потік
+    бере власне зʼєднання, тож переносити виклик у потік безпечно.
+    """
+    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 @contextmanager
@@ -190,6 +204,57 @@ def enable_daily_summaries_for_all_allowed_chats():
                     cur.execute("UPDATE chats SET enabled=1 WHERE chat_id=%s", (chat_id,))
                     config.log.info(f"Updated chat_id {chat_id} to enabled=1 in chats table")
         conn.commit()
+
+
+def set_summaries_enabled(chat_id: int, enabled: bool) -> None:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE chats SET enabled=%s WHERE chat_id=%s",
+            (1 if enabled else 0, chat_id),
+        )
+        conn.commit()
+
+
+def is_summaries_enabled(chat_id: int) -> bool:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT enabled FROM chats WHERE chat_id=%s", (chat_id,))
+        row = cur.fetchone()
+        return bool(row and row["enabled"] == 1)
+
+
+def get_messages_between(chat_id: int, start_ts_utc: int, end_ts_utc: int) -> list[dict]:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM messages WHERE chat_id=%s AND ts_utc>=%s AND ts_utc<%s "
+            "ORDER BY ts_utc ASC",
+            (chat_id, start_ts_utc, end_ts_utc),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_last_messages(chat_id: int, limit: int) -> list[dict]:
+    """Останні N повідомлень у хронологічному порядку."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT text, full_name, username, ts_utc, user_id, message_id, reply_to_message_id
+               FROM messages
+               WHERE chat_id = %s
+               ORDER BY ts_utc DESC LIMIT %s""",
+            (chat_id, limit),
+        )
+        return list(cur.fetchall())[::-1]
+
+
+def get_messages_since(chat_id: int, start_ts_utc: int) -> list[dict]:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT text, full_name, username, ts_utc, user_id, message_id, reply_to_message_id
+               FROM messages
+               WHERE chat_id = %s AND ts_utc >= %s
+               ORDER BY ts_utc ASC""",
+            (chat_id, start_ts_utc),
+        )
+        return list(cur.fetchall())
 
 
 def get_enabled_chat_ids() -> list[int]:
