@@ -14,7 +14,7 @@ def test_tools_are_bound_to_their_chat():
     """chat_id не має бути аргументом, який модель може підставити сама."""
     tools = build_tools(chat_id=42)
     names = {t.name for t in tools}
-    assert names == {"summarize_chat", "search_chat_history", "get_weather"}
+    assert names == {"summarize_chat", "search_chat_history", "get_weather", "web_fetch"}
 
     for t in tools:
         assert "chat_id" not in t.args, (
@@ -129,3 +129,40 @@ async def test_agent_is_skipped_for_chats_without_the_flag(monkeypatch):
 
     msg = FakeMessage("яка погода?", user_id=5, message_id=1)
     assert await handlers_mod.get_panbot_response(msg) == "відповідь"
+
+
+def test_native_search_is_counted_in_used_tools():
+    """Вбудований пошук приходить блоком у content, а не в tool_calls."""
+    message = type("M", (), {
+        "tool_calls": [],
+        "content": [
+            {"type": "web_search_call", "status": "completed"},
+            {"type": "text", "text": "результат"},
+        ],
+    })
+    assert graph_mod._used_tools([message]) == ["web_search_call"]
+
+
+def test_local_and_native_tools_are_both_counted():
+    local = type("M", (), {"tool_calls": [{"name": "get_weather"}], "content": ""})
+    native = type("M", (), {"tool_calls": [], "content": [{"type": "web_search_call"}]})
+    assert graph_mod._used_tools([local, native]) == ["get_weather", "web_search_call"]
+
+
+def test_text_property_is_preferred_over_method():
+    """LangChain перевів .text із методу на property — підтримуємо обидва."""
+    modern = type("M", (), {"text": "нове API", "content": "ігнорується"})()
+    assert graph_mod._extract_text(modern) == "нове API"
+
+
+def test_text_extracted_from_content_blocks():
+    blocks = type("M", (), {
+        "content": [
+            {"type": "web_search_call"},
+            {"type": "text", "text": "перший"},
+            {"type": "text", "text": "другий"},
+        ],
+    })()
+    # без .text взагалі — падати не має
+    assert "перший" in graph_mod._extract_text(blocks)
+    assert "другий" in graph_mod._extract_text(blocks)

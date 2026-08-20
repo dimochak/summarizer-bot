@@ -8,10 +8,11 @@ from langchain_core.tools import BaseTool
 
 from src.agent.tools.chat import build_chat_tools
 from src.agent.tools.weather import get_weather
+from src.agent.tools.web import web_fetch
 
 
 def build_tools(chat_id: int) -> list[BaseTool]:
-    return [*build_chat_tools(chat_id), get_weather]
+    return [*build_chat_tools(chat_id), get_weather, web_fetch]
 
 
 __all__ = ["build_tools"]
