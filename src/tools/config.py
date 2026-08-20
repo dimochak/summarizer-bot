@@ -28,6 +28,10 @@ AGENT_GEMINI_MODEL_NAME = os.getenv("AGENT_GEMINI_MODEL_NAME", "")
 # Стеля викликів інструментів на один хід. Захист від зациклення агента.
 AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "5"))
 
+# Пошук в інтернеті через вбудований інструмент провайдера. Поки що працює
+# лише для OpenAI: у Gemini це окремий механізм (google_search grounding).
+AGENT_WEB_SEARCH = os.getenv("AGENT_WEB_SEARCH", "true").lower() == "true"
+
 # Профіль користувача оновлюється не частіше, ніж раз на стільки днів.
 # Джоб ходить щодня, але бере лише тих, у кого профіль застарів, — так
 # навантаження розмазується, а не падає одним місячним піком.
@@ -146,4 +150,9 @@ log.info(f"OPENAI_MODEL_NAME={OPENAI_MODEL_NAME}")
 log.info(f"REPLY_DECISION_GEMINI_MODEL_NAME={REPLY_DECISION_GEMINI_MODEL_NAME}")
 log.info(f"REPLY_DECISION_OPENAI_MODEL_NAME={REPLY_DECISION_OPENAI_MODEL_NAME}")
 log.info(f"PANBOT_CHAT_IDS={PANBOT_CHAT_IDS}")
+log.info(f"AGENT_CHAT_IDS={AGENT_CHAT_IDS}")
+log.info(f"AGENT_OPENAI_MODEL_NAME={AGENT_OPENAI_MODEL_NAME}")
+log.info(f"AGENT_GEMINI_MODEL_NAME={AGENT_GEMINI_MODEL_NAME}")
+log.info(f"AGENT_MAX_STEPS={AGENT_MAX_STEPS}")
+log.info(f"AGENT_WEB_SEARCH={AGENT_WEB_SEARCH}")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")

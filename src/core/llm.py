@@ -64,11 +64,13 @@ def get_llm(
     chat_id: int | None = None,
     purpose: Purpose = "chat",
     provider: Provider | None = None,
+    use_responses_api: bool = False,
 ) -> BaseChatModel:
     """Клієнт LLM для заданого чату й призначення.
 
     `provider` перекриває автовизначення — потрібно там, де виклик не прив'язаний
-    до чату взагалі.
+    до чату взагалі. `use_responses_api` потрібен для вбудованих інструментів
+    OpenAI (зокрема web_search) і на Gemini не впливає.
     """
     provider = provider or resolve_provider(chat_id, purpose)
     model_name = resolve_model_name(provider, purpose)
@@ -76,7 +78,11 @@ def get_llm(
     if provider == "openai":
         if not config.OPENAI_API_KEY:
             raise RuntimeError(f"OPENAI_API_KEY не заданий, а purpose={purpose} потребує OpenAI")
-        return ChatOpenAI(model=model_name, api_key=config.OPENAI_API_KEY)
+        return ChatOpenAI(
+            model=model_name,
+            api_key=config.OPENAI_API_KEY,
+            use_responses_api=use_responses_api,
+        )
 
     if not config.GEMINI_API_KEY:
         raise RuntimeError(f"GEMINI_API_KEY не заданий, а purpose={purpose} потребує Gemini")
