@@ -12,7 +12,7 @@ class PanBotEngine:
         if debug:
             set_debug(True)
 
-    async def generate_response(self, message, quoted_block: str, traits_block: str, user_name: str, user_message: str, custom_role: str = None, is_creator: bool = False):
+    async def generate_response(self, message, quoted_block: str, traits_block: str, user_name: str, user_message: str, custom_role: str = None, is_creator: bool = False, facts_block: str = ""):
         chat_id = message.chat.id
         reply_to_id = message.reply_to_message.message_id if message.reply_to_message else None
         llm = get_structured_llm(BotResponse, chat_id=chat_id, purpose="chat")
@@ -37,6 +37,7 @@ class PanBotEngine:
             "user_message": user_message,
             "custom_role": custom_role or "",
             "is_creator": is_creator,
+            "facts_block": facts_block,
         }
         
         log.info(f"Invoking PanBotEngine with custom_role: '{custom_role}'")

@@ -17,7 +17,7 @@ from langchain_openai import ChatOpenAI
 import src.tools.config as config
 
 Provider = Literal["openai", "gemini"]
-Purpose = Literal["chat", "decision", "summary", "traits"]
+Purpose = Literal["chat", "decision", "summary", "traits", "agent"]
 
 # Призначення, прив'язані до конкретного провайдера незалежно від налаштувань чату.
 # Traits історично працювали лише через OpenAI; перемикання на Gemini —
@@ -49,10 +49,14 @@ def resolve_model_name(provider: Provider, purpose: Purpose) -> str:
             return config.REPLY_DECISION_OPENAI_MODEL_NAME or config.OPENAI_MODEL_NAME
         if purpose == "traits":
             return config.TRAITS_MODEL_NAME
+        if purpose == "agent":
+            return config.AGENT_OPENAI_MODEL_NAME or config.OPENAI_MODEL_NAME
         return config.OPENAI_MODEL_NAME
 
     if purpose == "decision":
         return config.REPLY_DECISION_GEMINI_MODEL_NAME or config.GEMINI_MODEL_NAME
+    if purpose == "agent":
+        return config.AGENT_GEMINI_MODEL_NAME or config.GEMINI_MODEL_NAME
     return config.GEMINI_MODEL_NAME
 
 

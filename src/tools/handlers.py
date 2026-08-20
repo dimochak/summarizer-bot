@@ -20,6 +20,7 @@ from src.tools.db import (
     get_custom_role,
     set_custom_role
 )
+from src.agent.graph import gather_facts
 from src.panbot.engine.core import PanBotEngine
 from src.panbot.engine.summary import SummaryEngine
 from src.panbot.helpers import (
@@ -168,6 +169,19 @@ async def get_panbot_response(message: Message) -> str:
 
         custom_role = await db_call(get_custom_role, chat_id)
 
+        # Етап 1 — збір фактів інструментами, без персони.
+        # Етап 2 (нижче) надає їм голос. Розділення тримає сарказм живим:
+        # у tool-calling циклі фінальний текст моделі дрейфує в бік
+        # нейтрального асистента.
+        facts_block = ""
+        if chat_id in config.AGENT_CHAT_IDS:
+            try:
+                facts_block = await gather_facts(chat_id, user_message)
+            except Exception as e:
+                # Агент — доповнення, а не умова відповіді: без фактів бот
+                # просто відповість як раніше.
+                config.log.exception("Agent fact-gathering failed: %s", e)
+
         try:
             config.log.info(f"Generating response for chat {chat_id}")
             response = await panbot_engine.generate_response(
@@ -178,6 +192,7 @@ async def get_panbot_response(message: Message) -> str:
                 user_message=user_message,
                 custom_role=custom_role,
                 is_creator=is_creator,
+                facts_block=facts_block,
             )
         except Exception as e:
             config.log.exception("Error generating response: %s", e)

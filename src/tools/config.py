@@ -19,6 +19,15 @@ REPLY_DECISION_OPENAI_MODEL_NAME = os.getenv("REPLY_DECISION_OPENAI_MODEL_NAME",
 # Раніше traits читав власну змінну оточення просто в модулі.
 TRAITS_MODEL_NAME = os.getenv("TRAITS_LLM_MODEL", "gpt-5")
 
+# Модель для етапу збору фактів. Вона працює без персони й лише вирішує, які
+# інструменти покликати, тож тут доречна дешевша й швидша модель, ніж для
+# фінальної репліки. Порожнє значення — брати основну модель чату.
+AGENT_OPENAI_MODEL_NAME = os.getenv("AGENT_OPENAI_MODEL_NAME", "")
+AGENT_GEMINI_MODEL_NAME = os.getenv("AGENT_GEMINI_MODEL_NAME", "")
+
+# Стеля викликів інструментів на один хід. Захист від зациклення агента.
+AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "5"))
+
 # Профіль користувача оновлюється не частіше, ніж раз на стільки днів.
 # Джоб ходить щодня, але бере лише тих, у кого профіль застарів, — так
 # навантаження розмазується, а не падає одним місячним піком.
@@ -48,6 +57,13 @@ _panbot_env = os.getenv("PANBOT_CHAT_IDS")
 PANBOT_CHAT_IDS = set()
 if _panbot_env:
     PANBOT_CHAT_IDS = {int(x.strip()) for x in _panbot_env.split(",") if x.strip()}
+
+# Чати, де відповідь іде через агента з інструментами. Підмножина PANBOT_CHAT_IDS:
+# дозволяє викотити агента на один чат і порівняти з рештою наживо.
+_agent_env = os.getenv("AGENT_CHAT_IDS")
+AGENT_CHAT_IDS = set()
+if _agent_env:
+    AGENT_CHAT_IDS = {int(x.strip()) for x in _agent_env.split(",") if x.strip()}
 
 
 # Чати, налаштовані на AI-підсумки (мають конкретного провайдера).
