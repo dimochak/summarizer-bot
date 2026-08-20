@@ -42,6 +42,32 @@ FORECAST = {"current": {
 }}
 
 
+FORECAST_WITH_DAILY = {
+    "current": FORECAST["current"],
+    "daily": {
+        "time": ["2026-08-20", "2026-08-21", "2026-08-22"],
+        "temperature_2m_max": [26.0, 22.4, 19.8],
+        "temperature_2m_min": [15.0, 13.2, 12.1],
+        "weather_code": [1, 61, 3],
+        "precipitation_probability_max": [10, 80, 40],
+    },
+}
+
+
+FORECAST_WITH_HOURLY = {
+    "current": {**FORECAST["current"], "time": "2026-08-20T22:30"},
+    "hourly": {
+        "time": [
+            "2026-08-20T21:00", "2026-08-20T22:00",   # вже минули
+            "2026-08-20T23:00", "2026-08-21T00:00", "2026-08-21T01:00",
+        ],
+        "temperature_2m": [24.0, 23.0, 22.0, 21.0, 20.0],
+        "weather_code": [1, 1, 61, 61, 3],
+        "precipitation_probability": [0, 5, 70, 65, 20],
+    },
+}
+
+
 @pytest.fixture
 def fake_http(monkeypatch):
     def install(responses):
@@ -61,6 +87,37 @@ async def test_weather_formats_readable_answer(fake_http):
     assert "18°C" in result          # округлення 17.6
     assert "невеликий дощ" in result  # код 61
     assert "12 км/год" in result
+    assert "Прогноз" not in result   # за замовчуванням лише поточна
+
+
+async def test_forecast_is_requested_only_when_asked(fake_http):
+    client = fake_http([FakeResponse(GEO_KYIV), FakeResponse(FORECAST)])
+    await get_weather.ainvoke({"city": "Київ"})
+    _, params = client.calls[-1]
+    assert "daily" not in params, "без запиту прогнозу не тягнемо зайвих даних"
+
+
+async def test_forecast_included_when_days_requested(fake_http):
+    client = fake_http([FakeResponse(GEO_KYIV), FakeResponse(FORECAST_WITH_DAILY)])
+
+    result = await get_weather.ainvoke({"city": "Київ", "forecast_days": 2})
+
+    _, params = client.calls[-1]
+    # +1, бо перший день у відповіді — сьогоднішній
+    assert params["forecast_days"] == 3
+    assert "daily" in params
+
+    assert "Прогноз" in result
+    assert "сьогодні" in result
+    assert "2026-08-21" in result
+    assert "опади 80%" in result
+
+
+async def test_forecast_days_are_clamped(fake_http):
+    client = fake_http([FakeResponse(GEO_KYIV), FakeResponse(FORECAST_WITH_DAILY)])
+    await get_weather.ainvoke({"city": "Київ", "forecast_days": 99})
+    _, params = client.calls[-1]
+    assert params["forecast_days"] == 8, "максимум 7 днів понад сьогодні"
 
 
 async def test_unknown_city_says_so(fake_http):
@@ -144,3 +201,51 @@ async def test_summarize_tool_clamps_absurd_amounts(monkeypatch):
 
     assert captured["value"] == 48, "нереальний відрізок мав обрізатись"
     assert captured["chat_id"] == 7
+
+
+async def test_hourly_only_shows_future_hours(fake_http):
+    """Погодинні дані починаються з 00:00 доби — минулі години показувати нікуди."""
+    fake_http([FakeResponse(GEO_KYIV), FakeResponse(FORECAST_WITH_HOURLY)])
+
+    result = await get_weather.ainvoke({"city": "Київ", "hours_ahead": 3})
+
+    assert "Погодинно" in result
+    assert "21:00" not in result, "минула година потрапила у прогноз"
+    assert "22:00" not in result, "поточна година вже минула"
+    assert "23:00" in result
+    assert "00:00" in result
+    assert "опади 70%" in result
+
+
+async def test_hourly_respects_requested_count(fake_http):
+    fake_http([FakeResponse(GEO_KYIV), FakeResponse(FORECAST_WITH_HOURLY)])
+
+    result = await get_weather.ainvoke({"city": "Київ", "hours_ahead": 1})
+
+    assert "23:00" in result
+    assert "00:00" not in result, "запросили одну годину, а показано більше"
+
+
+async def test_hourly_requests_enough_days(fake_http):
+    """На добу вперед погодинних даних одного дня не вистачить."""
+    client = fake_http([FakeResponse(GEO_KYIV), FakeResponse(FORECAST_WITH_HOURLY)])
+
+    await get_weather.ainvoke({"city": "Київ", "hours_ahead": 24})
+
+    _, params = client.calls[-1]
+    assert "hourly" in params
+    assert params["forecast_days"] >= 2
+
+
+async def test_hourly_is_not_requested_by_default(fake_http):
+    client = fake_http([FakeResponse(GEO_KYIV), FakeResponse(FORECAST)])
+    await get_weather.ainvoke({"city": "Київ"})
+    _, params = client.calls[-1]
+    assert "hourly" not in params
+
+
+async def test_hours_ahead_is_clamped(fake_http):
+    fake_http([FakeResponse(GEO_KYIV), FakeResponse(FORECAST_WITH_HOURLY)])
+    # 999 годин має обрізатись до 48 і не впасти
+    result = await get_weather.ainvoke({"city": "Київ", "hours_ahead": 999})
+    assert "Погодинно" in result
