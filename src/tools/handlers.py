@@ -7,8 +7,10 @@ from telegram.ext import ContextTypes
 
 import src.tools.config as config
 from src.tools.db import (
-    db,
+    db_call,
     ensure_chat_record,
+    set_summaries_enabled,
+    is_summaries_enabled,
     add_message,
     upsert_photo_message,
     get_duplicate_photo_message_id,
@@ -64,7 +66,7 @@ summary_engine = SummaryEngine()
 
 
 async def should_reply_with_agent(message: Message) -> bool | None:
-    if not should_reply(message):
+    if not await db_call(should_reply, message):
         return None
 
     raw_text = message.text or message.caption or ""
@@ -78,7 +80,7 @@ async def should_reply_with_agent(message: Message) -> bool | None:
         chat_id = message.chat.id if getattr(message, "chat", None) else None
         reply_to_id = message.reply_to_message.message_id
         if chat_id and reply_to_id:
-            is_reply_to_bot = is_bot_message(chat_id, reply_to_id)
+            is_reply_to_bot = await db_call(is_bot_message, chat_id, reply_to_id)
 
     try:
         return await panbot_engine.should_reply_by_agent(
@@ -122,7 +124,7 @@ async def get_panbot_response(message: Message) -> str:
     today = datetime.now(tz=config.KYIV).date().isoformat()
     daily_limit = config.MESSAGES_PER_USER
 
-    current_usage = get_panbot_usage(user_id, chat_id, today)
+    current_usage = await db_call(get_panbot_usage, user_id, chat_id, today)
     if current_usage >= daily_limit:
         raise SarcasmLimitExceeded(
             f"Ви вже вичерпали свою денну норму сарказму ({daily_limit} разів). "
@@ -150,21 +152,21 @@ async def get_panbot_response(message: Message) -> str:
             charge_quota = False
     else:
         quoted_block = get_quoted_block(message)
-        traits_block = get_traits_block(user_id)
+        traits_block = await db_call(get_traits_block, user_id)
         is_creator = user_id == CREATOR_USER_ID
 
         if is_creator and user_message.lower().startswith(CUSTOM_ROLE_TRIGGER):
             new_role = user_message[len(CUSTOM_ROLE_TRIGGER):].strip()
-            set_custom_role(chat_id, new_role or None)
+            await db_call(set_custom_role, chat_id, new_role or None)
             response = (
                 f"Слухаюсь, батьку! Тепер моя роль: {new_role}"
                 if new_role
                 else "Слухаюсь, батьку! Кастомну роль скинуто до стандартної."
             )
-            new_count = increment_panbot_usage(user_id, chat_id, today)
+            new_count = await db_call(increment_panbot_usage, user_id, chat_id, today)
             return _append_quota_notice(response, daily_limit - new_count)
 
-        custom_role = get_custom_role(chat_id)
+        custom_role = await db_call(get_custom_role, chat_id)
 
         try:
             config.log.info(f"Generating response for chat {chat_id}")
@@ -185,7 +187,7 @@ async def get_panbot_response(message: Message) -> str:
     if not charge_quota:
         return response
 
-    new_count = increment_panbot_usage(user_id, chat_id, today)
+    new_count = await db_call(increment_panbot_usage, user_id, chat_id, today)
     return _append_quota_notice(response, daily_limit - new_count)
 
 
@@ -197,7 +199,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.id not in config.KNOWN_CHAT_IDS:
         return
 
-    ensure_chat_record(chat)
+    await db_call(ensure_chat_record, chat)
 
     text = msg.text or msg.caption
     if text is None:
@@ -207,7 +209,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
 
-    add_message(
+    await db_call(
+        add_message,
         chat.id,
         msg.message_id,
         (msg.from_user and msg.from_user.id) or None,
@@ -239,7 +242,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot_ts = bot_message.date
             if bot_ts.tzinfo is None:
                 bot_ts = bot_ts.replace(tzinfo=timezone.utc)
-            add_message(
+            await db_call(
+                add_message,
                 chat.id,
                 bot_message.message_id,
                 config.BOT_USER_ID,
@@ -275,7 +279,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     config.log.info(f"Triggered on photo: chat {chat.id} msg {msg.message_id}")
 
     try:
-        ensure_chat_record(chat)
+        await db_call(ensure_chat_record, chat)
     except Exception as e:
         config.log.exception(f"ensure_chat_record failed: {e}")
 
@@ -295,7 +299,8 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # First, store the photo message to ensure it's in the DB
     try:
-        upsert_photo_message(
+        await db_call(
+            upsert_photo_message,
             chat_id=chat.id,
             message_id=msg.message_id,
             ts_utc=ts_utc_int,
@@ -308,13 +313,18 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check for duplicates if PanBot is enabled in this chat
     if chat.id in config.PANBOT_CHAT_IDS:
         # We look for a duplicate, excluding the current message
-        orig_msg_id = get_duplicate_photo_message_id(chat.id, file_unique_id, exclude_message_id=msg.message_id)
+        orig_msg_id = await db_call(
+            get_duplicate_photo_message_id,
+            chat.id,
+            file_unique_id,
+            exclude_message_id=msg.message_id,
+        )
         if orig_msg_id:
             config.log.info(f"Duplicate photo detected in chat {chat.id}, file_unique_id {file_unique_id}, original message_id {orig_msg_id}")
             try:
                 # Use a special prompt for the engine to generate a sarcastic comment about the duplicate (banka/bayan)
                 user_name = msg.from_user.full_name if msg.from_user else "Невідомий пасажир"
-                custom_role = get_custom_role(chat.id)
+                custom_role = await db_call(get_custom_role, chat.id)
                 user_id = msg.from_user.id if msg.from_user else 0
                 is_creator = (user_id == 229953580)
 
@@ -328,7 +338,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 response = await panbot_engine.generate_response(
                     message=msg,
                     quoted_block="",
-                    traits_block=get_traits_block(user_id),
+                    traits_block=await db_call(get_traits_block, user_id),
                     user_name=user_name,
                     user_message=fake_msg,
                     custom_role=custom_role,
@@ -344,7 +354,8 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 bot_ts = bot_message.date
                 if bot_ts.tzinfo is None:
                     bot_ts = bot_ts.replace(tzinfo=timezone.utc)
-                add_message(
+                await db_call(
+                    add_message,
                     chat.id,
                     bot_message.message_id,
                     config.BOT_USER_ID,
@@ -457,10 +468,8 @@ async def cmd_enable_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
-    ensure_chat_record(chat)
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE chats SET enabled=1 WHERE chat_id=%s", (chat.id,))
-        conn.commit()
+    await db_call(ensure_chat_record, chat)
+    await db_call(set_summaries_enabled, chat.id, True)
     await update.effective_message.reply_text(
         "✅ Daily summaries enabled for this chat."
     )
@@ -477,10 +486,8 @@ async def cmd_disable_summaries(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
-    ensure_chat_record(chat)
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE chats SET enabled=0 WHERE chat_id=%s", (chat.id,))
-        conn.commit()
+    await db_call(ensure_chat_record, chat)
+    await db_call(set_summaries_enabled, chat.id, False)
     await update.effective_message.reply_text(
         "🚫 Daily summaries disabled for this chat."
     )
@@ -498,10 +505,7 @@ async def cmd_status_summaries(update: Update, context: ContextTypes.DEFAULT_TYP
         provider_status = "❌ Not configured"
 
     # Check if summaries are enabled in database
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT enabled FROM chats WHERE chat_id=%s", (chat.id,))
-        row = cur.fetchone()
-    enabled = row and row["enabled"] == 1
+    enabled = await db_call(is_summaries_enabled, chat.id)
 
     status_text = (
         f"**Configuration Status:**\n"

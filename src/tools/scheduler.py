@@ -3,7 +3,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, Application
 
 import src.tools.config as config
-from src.tools.db import get_enabled_chat_ids, cleanup_old_data
+from src.tools.db import db_call, get_enabled_chat_ids, cleanup_old_data
 from src.summarizer.summarizer import summarize_day
 from src.tools.utils import local_midnight_bounds
 from src.traits.compose_traits import refresh_stale_user_traits
@@ -31,7 +31,7 @@ async def send_daily_summary_to_chat(app: Application,
 
 async def send_all_summaries_job(context: ContextTypes.DEFAULT_TYPE):
     app = context.application
-    chat_ids = get_enabled_chat_ids()
+    chat_ids = await db_call(get_enabled_chat_ids)
 
     # Filter chat_ids to only include those that are configured for AI providers
     configured_chat_ids = [cid for cid in chat_ids if cid in config.ALLOWED_CHAT_IDS]
@@ -50,7 +50,7 @@ async def send_all_summaries_job(context: ContextTypes.DEFAULT_TYPE):
 
 async def cleanup_db_job(context: ContextTypes.DEFAULT_TYPE):
     config.log.info("Starting scheduled database cleanup...")
-    cleanup_old_data(config.DB_RETENTION_DAYS)
+    await db_call(cleanup_old_data, config.DB_RETENTION_DAYS)
 
 
 async def refresh_traits_job(context: ContextTypes.DEFAULT_TYPE):
