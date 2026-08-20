@@ -60,8 +60,7 @@ def test_daily_limit_enforced(monkeypatch):
     import src.panbot.helpers as helpers_mod
     
     # Mock generation to avoid actual API calls
-    async def mock_gen_resp(self, message, quoted_block, traits_block, user_name,
-                            user_message, custom_role=None, is_creator=False):
+    async def mock_gen_resp(self, **kwargs):
         return "mocked response"
     
     # We need to mock PanBotEngine.generate_response
@@ -208,9 +207,8 @@ def test_father_respect_injection(monkeypatch):
     # Пошана до творця тепер передається прапорцем is_creator і застосовується
     # в шаблоні system.j2, а не вшивається в traits_block.
     captured = []
-    async def mock_gen_resp(self, message, quoted_block, traits_block, user_name,
-                            user_message, custom_role=None, is_creator=False):
-        captured.append(is_creator)
+    async def mock_gen_resp(self, **kwargs):
+        captured.append(kwargs["is_creator"])
         return "mocked response"
     
     from src.panbot.engine.core import PanBotEngine
@@ -268,9 +266,8 @@ def test_father_sets_custom_role(monkeypatch):
 
     # Normal user tries to set role (should be ignored and passed to LLM)
     captured_custom_roles = []
-    async def mock_gen_resp(self, message, quoted_block, traits_block, user_name,
-                            user_message, custom_role=None, is_creator=False):
-        captured_custom_roles.append(custom_role)
+    async def mock_gen_resp(self, **kwargs):
+        captured_custom_roles.append(kwargs["custom_role"])
         return "mocked response"
     
     from src.panbot.engine.core import PanBotEngine

@@ -112,20 +112,30 @@ get_llm(chat_id, purpose)   # purpose: chat | decision | summary | vision | tran
 
 **Готово, коли:** відповідь бота робить ≤ 5 запитів до БД; навантажувальний тест не показує блокувань loop.
 
-**🟡 ЧАСТКОВО ВИКОНАНО 2026-08-18.** Зроблено:
+**✅ ВИКОНАНО.** Зроблено:
 - `ConnectionPool` (синхронний) замість нового TCP-зʼєднання на кожен запит;
   усі 29 місць переведено з `closing(db())` на контекст-менеджер
 - рекурсивний CTE замість циклу з окремим запитом на крок
 - загальний фон не вибирається, коли є тред
 - `close_pool()` на `post_shutdown`
 
-**Лишилось (1.2b):** сам перехід на `AsyncConnectionPool`. Пул прибрав вартість
-встановлення зʼєднання, але синхронний psycopg у async-хендлерах ДОСІ блокує
-event loop. Часткове помʼякшення вже є: `ChatContextHistory.messages` — sync-property,
-яку LangChain у async-гілці сам виносить у executor. А ось прямі виклики в
-`handlers.py` (`is_bot_message`, `get_custom_role`, `add_message`…) блокують.
-Найдешевший наступний крок — обгорнути їх у `asyncio.to_thread`, не переписуючи
-весь `db.py` на async.
+**✅ 1.2b ВИКОНАНО 2026-08-20.** Обрано `asyncio.to_thread` замість переписування
+всього `db.py` на `AsyncConnectionPool`: `ConnectionPool` і так розрахований на
+багатопотокове використання, а каскад `async def` довелося б тягнути через
+`should_reply`, `get_traits_block` і далі по всіх викликах.
+
+Доданий `db_call(func, *args, **kwargs)` у `db.py` — єдина точка, через яку
+async-код звертається до синхронної БД. Переведені `handlers.py`, `scheduler.py`,
+`summarizer.py`, `engine/summary.py`, `compose_traits.py`.
+
+Заразом інлайновий SQL поїхав із хендлерів у `db.py`
+(`set_summaries_enabled`, `is_summaries_enabled`, `get_messages_between`,
+`get_last_messages`, `get_messages_since`), а приватні `_fetch_*` у `SummaryEngine`
+зникли як дублікати.
+
+`ChatContextHistory.messages` лишається sync-property свідомо: LangChain у
+async-гілці сам виносить її в executor через `run_in_executor` — перевірено
+в коді `BaseChatMessageHistory.aget_messages`.
 
 ⚠️ **Рекурсивний CTE не перевірений проти живої Postgres.** Юніт-тести мокають
 `_fetch_reply_chain` цілком. Покриття є в `tests/test_db_cleanup_integration.py`,
@@ -176,6 +186,31 @@ XXL_TEST_DATABASE_URL=postgresql://... uv run pytest -m integration
 - `MESSAGES_PER_USER = 10` рахує повідомлення, але агент витрачає різну кількість токенів за хід. Ліміт має стати вартісним, а не лічильником. Переносимо у Фазу 6.
 
 **Готово, коли:** `check_summary_request` видалено, а тест доводить, що «підсумуй останні 50 повідомлень» відпрацьовує через виклик інструмента.
+
+**🟡 ЯДРО ГОТОВЕ 2026-08-20.** Реалізовано дволанкову схему:
+
+```
+Етап 1  src/agent/graph.py  agent(tools) без персони -> сухий конспект або NONE
+Етап 2  system.j2           той самий промпт + facts_block -> репліка ботяндри
+```
+
+Розділення обране свідомо: у tool-calling циклі фінальний текст моделі дрейфує
+в бік нейтрального асистента, і сарказм стирається. Побічно це дозволяє крутити
+збір фактів на дешевшій моделі (`AGENT_OPENAI_MODEL_NAME` / `AGENT_GEMINI_MODEL_NAME`).
+
+Інструменти: `summarize_chat`, `search_chat_history`, `get_weather` (Open-Meteo,
+без ключа). `chat_id` замкнений у замиканні, а не є аргументом моделі — інакше
+модель могла б дістати історію сусіднього чату.
+
+Викатка через `AGENT_CHAT_IDS`. Збій агента не валить відповідь: `facts_block`
+лишається порожнім, і бот відповідає як раніше.
+
+Використано `langchain.agents.create_agent`, а не `langgraph.prebuilt.create_react_agent`
+— останній оголошений застарілим у LangGraph V1 і буде прибраний у V2.
+
+**Лишилось у Фазі 2:** `check_summary_request` ще на місці — regex-шлях і
+інструмент поки співіснують. Прибрати після того, як агент себе покаже в бою.
+Квота досі рахує повідомлення, а не вартість.
 
 ---
 
