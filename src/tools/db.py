@@ -393,6 +393,44 @@ def get_user_traits(user_id: int) -> dict | None:
         return row["traits_json"] if row else None
 
 
+def find_chat_participants(chat_id: int, name: str, limit: int = 3) -> list[dict]:
+    """Учасники чату, чиє імʼя або юзернейм схожі на заданий рядок.
+
+    Потрібно, бо модель знає людину на імʼя, а traits лежать за user_id.
+    """
+    pattern = f"%{name.strip()}%"
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT user_id,
+                      MAX(full_name) AS full_name,
+                      MAX(username)  AS username,
+                      COUNT(*)       AS messages_count
+               FROM messages
+               WHERE chat_id = %s
+                 AND user_id IS NOT NULL
+                 AND user_id <> %s
+                 AND (full_name ILIKE %s OR username ILIKE %s)
+               GROUP BY user_id
+               ORDER BY messages_count DESC
+               LIMIT %s""",
+            (chat_id, config.BOT_USER_ID, pattern, pattern, limit),
+        )
+        return list(cur.fetchall())
+
+
+def get_user_recent_messages(chat_id: int, user_id: int, limit: int = 40) -> list[dict]:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT text, ts_utc
+               FROM messages
+               WHERE chat_id = %s AND user_id = %s AND text IS NOT NULL
+               ORDER BY ts_utc DESC
+               LIMIT %s""",
+            (chat_id, user_id, limit),
+        )
+        return list(cur.fetchall())
+
+
 def get_user_ids_with_stale_traits(cutoff_ts: int, limit: int) -> list[int]:
     """Користувачі, чий профіль застарів або якого ще немає.
 
