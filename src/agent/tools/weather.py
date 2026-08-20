@@ -45,10 +45,11 @@ WEATHER_CODES = {
 
 
 MAX_FORECAST_DAYS = 7
+MAX_FORECAST_HOURS = 48
 
 
 @tool
-async def get_weather(city: str, forecast_days: int = 0) -> str:
+async def get_weather(city: str, forecast_days: int = 0, hours_ahead: int = 0) -> str:
     """Повертає погоду у вказаному місті: поточну і, за потреби, прогноз.
 
     Використовуй, коли питають про погоду, температуру, чи брати парасольку,
@@ -60,8 +61,12 @@ async def get_weather(city: str, forecast_days: int = 0) -> str:
             0 — лише поточна погода (питають «зараз», «сьогодні»).
             1 — плюс завтра. 3-5 — коли питають про вихідні чи «на тижні».
             Максимум 7.
+        hours_ahead: погодинний прогноз на стільки годин уперед.
+            Потрібен, коли питають про частину доби: «чи буде дощ увечері»,
+            «яка погода вночі», «що там через три години». Максимум 48.
     """
     forecast_days = max(0, min(int(forecast_days), MAX_FORECAST_DAYS))
+    hours_ahead = max(0, min(int(hours_ahead), MAX_FORECAST_HOURS))
 
     params = {
         "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
@@ -74,6 +79,13 @@ async def get_weather(city: str, forecast_days: int = 0) -> str:
         )
         # +1, бо перший день у відповіді — сьогоднішній.
         params["forecast_days"] = forecast_days + 1
+
+    if hours_ahead:
+        params["hourly"] = "temperature_2m,weather_code,precipitation_probability"
+        # Погодинні дані починаються з 00:00 сьогодні, а не з поточної години,
+        # тож на добу вперед може знадобитись наступний день.
+        days_for_hours = hours_ahead // 24 + 2
+        params["forecast_days"] = max(params.get("forecast_days", 0), days_for_hours)
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
@@ -112,6 +124,26 @@ async def get_weather(city: str, forecast_days: int = 0) -> str:
         f"{WEATHER_CODES.get(current.get('weather_code'), 'невизначено')}, "
         f"вітер {current['wind_speed_10m']:.0f} км/год."
     ]
+
+    hourly = payload.get("hourly")
+    if hourly:
+        # Час у ISO і в тій самій зоні, що й current, тож рядки можна
+        # порівнювати напряму — беремо лише години, які ще попереду.
+        now = current["time"]
+        upcoming = [
+            i for i, t in enumerate(hourly["time"]) if t > now
+        ][:hours_ahead]
+
+        if upcoming:
+            lines.append("Погодинно:")
+            for i in upcoming:
+                lines.append(
+                    f"  {hourly['time'][i][11:16]} "
+                    f"({hourly['time'][i][:10]}): "
+                    f"{hourly['temperature_2m'][i]:.0f}°C, "
+                    f"{WEATHER_CODES.get(hourly['weather_code'][i], 'невизначено')}, "
+                    f"опади {hourly['precipitation_probability'][i]}%"
+                )
 
     daily = payload.get("daily")
     if daily:
