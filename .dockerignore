@@ -1,2 +1,20 @@
 bot.*
 backfill.sh
+
+# Секрети не мають потрапляти в образ. У CI .env і так відсутній (він не в git),
+# але при локальному `flyctl deploy` контекст береться з диска як є.
+.env
+.env.*
+
+.git
+.github
+.venv
+.pytest_cache
+.ruff_cache
+.claude
+__pycache__
+*.pyc
+tests
+docs
+*.log
+.DS_Store
