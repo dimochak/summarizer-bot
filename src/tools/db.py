@@ -245,6 +245,37 @@ def get_last_messages(chat_id: int, limit: int) -> list[dict]:
         return list(cur.fetchall())[::-1]
 
 
+def search_messages(
+    chat_id: int, query: str, since_ts_utc: int, limit: int
+) -> list[dict]:
+    """Пошук по тексту повідомлень чату.
+
+    Навмисно простий ILIKE по кожному слову запиту: повнотекстовий пошук
+    Postgres погано працює з українською морфологією без окремого словника,
+    а семантичний пошук зʼявиться у Фазі 5 разом із pgvector.
+    """
+    words = [w for w in query.split() if len(w) > 2][:5]
+    if not words:
+        return []
+
+    conditions = " AND ".join(["text ILIKE %s"] * len(words))
+    params = [chat_id, since_ts_utc, *(f"%{w}%" for w in words), limit]
+
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""SELECT text, full_name, username, ts_utc, user_id, message_id
+                FROM messages
+                WHERE chat_id = %s
+                  AND ts_utc >= %s
+                  AND text IS NOT NULL
+                  AND {conditions}
+                ORDER BY ts_utc DESC
+                LIMIT %s""",
+            params,
+        )
+        return list(cur.fetchall())[::-1]
+
+
 def get_messages_since(chat_id: int, start_ts_utc: int) -> list[dict]:
     with db() as conn, conn.cursor() as cur:
         cur.execute(

@@ -21,6 +21,7 @@ dependencies = [
     "tiktoken>=0.11.0",
     "tornado>=6.5.2",
     "psycopg-pool>=3.3.1",
+    "langgraph>=1.0.5",
 ]
 
 [dependency-groups]
