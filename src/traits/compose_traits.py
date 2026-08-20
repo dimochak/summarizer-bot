@@ -11,6 +11,7 @@ from src.core.llm import get_structured_llm
 from src.tools import config
 from src.tools.db import (
     _get_last_user_messages,
+    db_call,
     get_user_ids_with_stale_traits,
     upsert_user_traits,
 )
@@ -119,7 +120,7 @@ async def refresh_user_traits_from_messages_llm(user_id: int, lang: str = "uk") 
     """
     Формує traits через LLM на основі останніх 500 повідомлень користувача і зберігає у user_traits.
     """
-    rows = _get_last_user_messages(user_id, limit=500)
+    rows = await db_call(_get_last_user_messages, user_id, 500)
     snippet = _messages_to_snippet(rows)
 
     traits: dict[str, Any] = {
@@ -136,7 +137,7 @@ async def refresh_user_traits_from_messages_llm(user_id: int, lang: str = "uk") 
 
     if not _openai_enabled() or not rows:
         # fallback — збережемо «пусті» трейти з нульовою впевненістю
-        upsert_user_traits(user_id, traits, int(time()))
+        await db_call(upsert_user_traits, user_id, traits, int(time()))
         return traits
 
     prompt = _build_traits_prompt(lang=lang)
@@ -159,11 +160,11 @@ async def refresh_user_traits_from_messages_llm(user_id: int, lang: str = "uk") 
         parsed["version"] = TRAITS_VERSION
         parsed["sample_size"] = len(rows)
         parsed["updated_from"] = "llm_messages_last_500"
-        upsert_user_traits(user_id, parsed, int(time()))
+        await db_call(upsert_user_traits, user_id, parsed, int(time()))
         return parsed
     except Exception as e:
         config.log.exception(f"Traits generation failed: {e}")
-        upsert_user_traits(user_id, traits, int(time()))
+        await db_call(upsert_user_traits, user_id, traits, int(time()))
         return traits
 
 async def refresh_stale_user_traits(
@@ -186,7 +187,9 @@ async def refresh_stale_user_traits(
     now_ts = now_ts if now_ts is not None else int(time())
     cutoff = now_ts - config.TRAITS_REFRESH_DAYS * 86400
 
-    user_ids = get_user_ids_with_stale_traits(cutoff, config.TRAITS_REFRESH_BATCH)
+    user_ids = await db_call(
+        get_user_ids_with_stale_traits, cutoff, config.TRAITS_REFRESH_BATCH
+    )
     if not user_ids:
         config.log.info("Traits refresh: усі профілі свіжі")
         return 0

@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 
 import src.tools.config as config
 from src.core.llm import get_structured_llm, resolve_provider
-from src.tools.db import db
+from src.tools.db import db_call, get_messages_between
 from src.tools.utils import utc_ts, clean_text, message_link, user_link
 
 MAX_TOPICS_NUM = 7
@@ -242,13 +242,9 @@ async def summarize_day(
 
     start_utc = start_local.astimezone(ZoneInfo("UTC"))
     end_utc = end_local.astimezone(ZoneInfo("UTC"))
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT * FROM messages WHERE chat_id=%s AND ts_utc>=%s AND ts_utc<%s ORDER BY ts_utc ASC",
-            (chat.id, utc_ts(start_utc), utc_ts(end_utc)),
-        )
-        rows = [dict(r) for r in cur.fetchall()]
-
+    rows = await db_call(
+        get_messages_between, chat.id, utc_ts(start_utc), utc_ts(end_utc)
+    )
     rows = [r for r in rows if clean_text(r["text"])]
     if not rows:
         return None
