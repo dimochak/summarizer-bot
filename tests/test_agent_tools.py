@@ -249,3 +249,90 @@ async def test_hours_ahead_is_clamped(fake_http):
     # 999 годин має обрізатись до 48 і не впасти
     result = await get_weather.ainvoke({"city": "Київ", "hours_ahead": 999})
     assert "Погодинно" in result
+
+
+# --- Профіль учасника чату ---
+
+async def test_describe_participant_uses_stored_traits(monkeypatch):
+    import src.agent.tools.chat as chat_mod
+
+    async def mock_db_call(func, *args, **kwargs):
+        if func is chat_mod.find_chat_participants:
+            return [{"user_id": 42, "full_name": "Петро", "username": "petro",
+                     "messages_count": 137}]
+        if func is chat_mod.get_user_traits:
+            return {
+                "summary": "Любить сперечатись про залізо",
+                "topics": [{"name": "авто"}, {"name": "залізо"}],
+                "tone": {"friendliness": 0.4, "sarcasm": 0.8, "toxicity": 0.3},
+                "style": {"verbosity": 0.7, "emoji_usage": 0.1},
+            }
+        raise AssertionError(f"несподіваний виклик {func}")
+
+    monkeypatch.setattr(chat_mod, "db_call", mock_db_call)
+
+    describe = next(t for t in build_tools(7) if t.name == "describe_participant")
+    result = await describe.ainvoke({"name": "Петро"})
+
+    assert "Петро" in result
+    assert "Любить сперечатись про залізо" in result
+    assert "авто" in result
+    assert "сарказм 0.8" in result
+    assert "137" in result
+
+
+async def test_describe_participant_falls_back_to_messages(monkeypatch):
+    """Джоб оновлення профілів міг ще не дійти до людини — не мовчати ж."""
+    import src.agent.tools.chat as chat_mod
+
+    async def mock_db_call(func, *args, **kwargs):
+        if func is chat_mod.find_chat_participants:
+            return [{"user_id": 42, "full_name": "Новенький", "username": None,
+                     "messages_count": 3}]
+        if func is chat_mod.get_user_traits:
+            return None
+        if func is chat_mod.get_user_recent_messages:
+            return [{"text": "перша репліка", "ts_utc": 1}, {"text": "друга", "ts_utc": 2}]
+        raise AssertionError(f"несподіваний виклик {func}")
+
+    monkeypatch.setattr(chat_mod, "db_call", mock_db_call)
+
+    describe = next(t for t in build_tools(7) if t.name == "describe_participant")
+    result = await describe.ainvoke({"name": "Новенький"})
+
+    assert "готового профілю ще немає" in result
+    assert "перша репліка" in result
+
+
+async def test_describe_participant_reports_unknown_name(monkeypatch):
+    import src.agent.tools.chat as chat_mod
+
+    async def mock_db_call(func, *args, **kwargs):
+        return []
+
+    monkeypatch.setattr(chat_mod, "db_call", mock_db_call)
+
+    describe = next(t for t in build_tools(7) if t.name == "describe_participant")
+    result = await describe.ainvoke({"name": "Ніхто"})
+
+    assert "не знайдено" in result
+
+
+async def test_describe_participant_is_bound_to_its_chat(monkeypatch):
+    """chat_id береться із замикання — модель не може попросити чужий чат."""
+    import src.agent.tools.chat as chat_mod
+
+    captured = {}
+
+    async def mock_db_call(func, *args, **kwargs):
+        if func is chat_mod.find_chat_participants:
+            captured["chat_id"] = args[0]
+            return []
+        return []
+
+    monkeypatch.setattr(chat_mod, "db_call", mock_db_call)
+
+    describe = next(t for t in build_tools(4242) if t.name == "describe_participant")
+    await describe.ainvoke({"name": "Х"})
+
+    assert captured["chat_id"] == 4242

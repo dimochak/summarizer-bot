@@ -117,3 +117,31 @@ def test_reply_chain_cte_walks_up_and_ignores_age(live_db):
     assert [r["text"] for r in chain] == ["листок", "середина", "корінь"]
 
     assert len(history._fetch_reply_chain(3, max_depth=2)) == 2
+
+
+def test_self_repost_is_not_a_bayan(live_db):
+    """Самоповтор — не баян; повтор чужого — баян, з посиланням на перший пост."""
+    from src.tools.db import get_duplicate_photo_message_id as dup, upsert_photo_message
+
+    PETRO, OLYA, IVAN = 1, 2, 3
+    pic = "integration-test-pic"
+
+    with live_db() as conn:
+        conn.cursor().execute("DELETE FROM photo_messages WHERE chat_id = %s", (TEST_CHAT_ID,))
+        conn.commit()
+
+    def post(message_id, user_id):
+        upsert_photo_message(TEST_CHAT_ID, message_id, 1000 + message_id, pic, user_id)
+        return dup(TEST_CHAT_ID, pic, exclude_message_id=message_id, user_id=user_id)
+
+    try:
+        assert post(1, PETRO) is None, "перший пост — не баян"
+        assert post(2, PETRO) is None, "Петро повторив власний мем — не баян"
+        assert post(3, OLYA) == 1, "Оля повторила Петрів мем — баян, посилання на Петрів пост"
+        assert post(4, PETRO) is None, "автор повторив свій мем після чужого репосту — не баян"
+        assert post(5, OLYA) is None, "Олю вже підколювали — вдруге за те саме не треба"
+        assert post(6, IVAN) == 1, "новий репостер — знову баян із посиланням на оригінал"
+    finally:
+        with live_db() as conn:
+            conn.cursor().execute("DELETE FROM photo_messages WHERE chat_id = %s", (TEST_CHAT_ID,))
+            conn.commit()

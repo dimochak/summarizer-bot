@@ -43,6 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_panbot_limits_date ON panbot_limits(date);
 CREATE TABLE IF NOT EXISTS photo_messages (
     chat_id BIGINT NOT NULL,
     message_id BIGINT NOT NULL,
+    user_id BIGINT,
     ts_utc BIGINT NOT NULL,
     file_unique_id TEXT,
     PRIMARY KEY (chat_id, message_id)
@@ -127,6 +128,8 @@ def init_db():
         migrations = [
             "ALTER TABLE chats ADD COLUMN IF NOT EXISTS custom_role TEXT",
             "ALTER TABLE photo_messages ADD COLUMN IF NOT EXISTS file_unique_id TEXT",
+            # Без автора неможливо відрізнити баян від самоповтору.
+            "ALTER TABLE photo_messages ADD COLUMN IF NOT EXISTS user_id BIGINT",
             # photo_messages.file_id більше не пишеться (його читав лише petfinder),
             # але в наявних БД колонка має NOT NULL і без цього INSERT впав би.
             # Дані не чіпаємо — знімаємо лише обмеження. Умова обов'язкова: на
@@ -328,24 +331,57 @@ def is_bot_message(chat_id: int, message_id: int) -> bool:
         row = cur.fetchone()
         return row is not None and row["user_id"] == config.BOT_USER_ID
 
-def upsert_photo_message(chat_id: int, message_id: int, ts_utc: int, file_unique_id: str | None = None):
+def upsert_photo_message(
+    chat_id: int,
+    message_id: int,
+    ts_utc: int,
+    file_unique_id: str | None = None,
+    user_id: int | None = None,
+):
     with db() as conn, conn.cursor() as cur:
         cur.execute(
-            """INSERT INTO photo_messages (chat_id, message_id, ts_utc, file_unique_id)
-               VALUES (%s, %s, %s, %s)
+            """INSERT INTO photo_messages (chat_id, message_id, user_id, ts_utc, file_unique_id)
+               VALUES (%s, %s, %s, %s, %s)
                ON CONFLICT (chat_id, message_id)
                DO UPDATE SET
+               user_id=EXCLUDED.user_id,
                ts_utc=EXCLUDED.ts_utc,
                file_unique_id=EXCLUDED.file_unique_id""",
-            (chat_id, message_id, ts_utc, file_unique_id),
+            (chat_id, message_id, user_id, ts_utc, file_unique_id),
         )
         conn.commit()
 
 
-def get_duplicate_photo_message_id(chat_id: int, file_unique_id: str, exclude_message_id: int | None = None) -> int | None:
+def get_duplicate_photo_message_id(
+    chat_id: int,
+    file_unique_id: str,
+    exclude_message_id: int | None = None,
+    user_id: int | None = None,
+) -> int | None:
+    """message_id оригіналу, якщо картинка — баян; інакше None.
+
+    Самоповтор баяном не вважається: якщо цей самий користувач уже публікував
+    цю картинку раніше, мовчимо. Саме «вже публікував сам», а не «оригінал
+    від іншої людини»: інакше автор, що повторив власний мем після чужого
+    репосту, отримав би звинувачення з посиланням на той репост, а людина,
+    яку вже підколов бот, отримувала б підколку за кожне повторення.
+    """
     if not file_unique_id:
         return None
     with db() as conn, conn.cursor() as cur:
+        if user_id is not None:
+            self_query = (
+                "SELECT 1 FROM photo_messages "
+                "WHERE chat_id=%s AND file_unique_id=%s AND user_id=%s"
+            )
+            self_params = [chat_id, file_unique_id, user_id]
+            if exclude_message_id:
+                self_query += " AND message_id != %s"
+                self_params.append(exclude_message_id)
+            cur.execute(self_query + " LIMIT 1", self_params)
+            if cur.fetchone():
+                return None
+
         query = "SELECT message_id FROM photo_messages WHERE chat_id=%s AND file_unique_id=%s"
         params = [chat_id, file_unique_id]
         if exclude_message_id:
@@ -391,6 +427,44 @@ def get_user_traits(user_id: int) -> dict | None:
         cur.execute("SELECT traits_json FROM user_traits WHERE user_id=%s", (user_id,))
         row = cur.fetchone()
         return row["traits_json"] if row else None
+
+
+def find_chat_participants(chat_id: int, name: str, limit: int = 3) -> list[dict]:
+    """Учасники чату, чиє імʼя або юзернейм схожі на заданий рядок.
+
+    Потрібно, бо модель знає людину на імʼя, а traits лежать за user_id.
+    """
+    pattern = f"%{name.strip()}%"
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT user_id,
+                      MAX(full_name) AS full_name,
+                      MAX(username)  AS username,
+                      COUNT(*)       AS messages_count
+               FROM messages
+               WHERE chat_id = %s
+                 AND user_id IS NOT NULL
+                 AND user_id <> %s
+                 AND (full_name ILIKE %s OR username ILIKE %s)
+               GROUP BY user_id
+               ORDER BY messages_count DESC
+               LIMIT %s""",
+            (chat_id, config.BOT_USER_ID, pattern, pattern, limit),
+        )
+        return list(cur.fetchall())
+
+
+def get_user_recent_messages(chat_id: int, user_id: int, limit: int = 40) -> list[dict]:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT text, ts_utc
+               FROM messages
+               WHERE chat_id = %s AND user_id = %s AND text IS NOT NULL
+               ORDER BY ts_utc DESC
+               LIMIT %s""",
+            (chat_id, user_id, limit),
+        )
+        return list(cur.fetchall())
 
 
 def get_user_ids_with_stale_traits(cutoff_ts: int, limit: int) -> list[int]:

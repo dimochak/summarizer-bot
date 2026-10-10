@@ -14,7 +14,10 @@ def test_tools_are_bound_to_their_chat():
     """chat_id не має бути аргументом, який модель може підставити сама."""
     tools = build_tools(chat_id=42)
     names = {t.name for t in tools}
-    assert names == {"summarize_chat", "search_chat_history", "get_weather", "web_fetch"}
+    assert names == {
+        "summarize_chat", "search_chat_history", "describe_participant",
+        "get_weather", "web_fetch",
+    }
 
     for t in tools:
         assert "chat_id" not in t.args, (

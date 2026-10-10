@@ -371,6 +371,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message_id=msg.message_id,
             ts_utc=ts_utc_int,
             file_unique_id=file_unique_id,
+            user_id=msg.from_user.id if msg.from_user else None,
         )
         config.log.info(f"Photo/document stored: chat {chat.id} msg {msg.message_id}")
     except Exception as e:
@@ -384,6 +385,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat.id,
             file_unique_id,
             exclude_message_id=msg.message_id,
+            user_id=msg.from_user.id if msg.from_user else None,
         )
         if orig_msg_id:
             config.log.info(f"Duplicate photo detected in chat {chat.id}, file_unique_id {file_unique_id}, original message_id {orig_msg_id}")
