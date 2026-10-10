@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS user_traits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_traits_updated ON user_traits(updated_at_utc);
+
+CREATE TABLE IF NOT EXISTS reaction_state (
+    chat_id BIGINT NOT NULL,
+    rule TEXT NOT NULL,
+    last_fired_utc BIGINT NOT NULL,
+    PRIMARY KEY (chat_id, rule)
+);
 """
 
 
@@ -289,6 +296,39 @@ def get_messages_since(chat_id: int, start_ts_utc: int) -> list[dict]:
             (chat_id, start_ts_utc),
         )
         return list(cur.fetchall())
+
+
+def is_reaction_on_cooldown(chat_id: int, rule: str, now_ts: int, cooldown_s: int) -> bool:
+    """Дешева перевірка до LLM-підтвердження: на кулдауні моделі кликати нема сенсу."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT last_fired_utc FROM reaction_state WHERE chat_id=%s AND rule=%s",
+            (chat_id, rule),
+        )
+        row = cur.fetchone()
+        return bool(row and row["last_fired_utc"] > now_ts - cooldown_s)
+
+
+def claim_reaction(chat_id: int, rule: str, now_ts: int, cooldown_s: int) -> bool:
+    """Атомарно займає слот реакції. True — можна постити, False — кулдаун.
+
+    Перевірка й запис одним запитом: UPDATE спрацьовує лише тоді, коли
+    кулдаун минув, тож два майже одночасні повідомлення не запостять дві
+    картинки.
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO reaction_state (chat_id, rule, last_fired_utc)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (chat_id, rule) DO UPDATE
+                 SET last_fired_utc = EXCLUDED.last_fired_utc
+                 WHERE reaction_state.last_fired_utc <= %s
+               RETURNING last_fired_utc""",
+            (chat_id, rule, now_ts, now_ts - cooldown_s),
+        )
+        claimed = cur.fetchone() is not None
+        conn.commit()
+        return claimed
 
 
 def get_enabled_chat_ids() -> list[int]:
