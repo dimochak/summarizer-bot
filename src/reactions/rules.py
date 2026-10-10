@@ -25,6 +25,9 @@ class ReactionRule:
     # Особливості, які LLM має врахувати, щоб не спрацювати хибно.
     exclusions: str
     cooldown_seconds: int
+    # Чи писати до картинки підпис від LLM. Без підпису реакція швидша й
+    # дешевша: лишається тільки підтвердження теми.
+    generate_caption: bool = False
 
     @property
     def images_dir(self) -> Path:
@@ -46,5 +49,7 @@ RULES: list[ReactionRule] = [
             "(«кличка собаки», «яка в нього кличка») — НЕ рахується."
         ),
         cooldown_seconds=3 * 3600,
+        # Картинка говорить сама за себе.
+        generate_caption=False,
     ),
 ]

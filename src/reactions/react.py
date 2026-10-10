@@ -2,7 +2,7 @@
 
 Потік:
     регулярка -> кулдаун? -> є картинки? -> LLM-підтвердження -> атомарний
-    захват слоту -> підпис від LLM -> картинка реплаєм на повідомлення
+    захват слоту -> [підпис від LLM, якщо правило його хоче] -> картинка
 
 Дешеві перевірки стоять першими, щоб модель кликалась якомога рідше.
 """
@@ -152,12 +152,13 @@ async def maybe_react(message, text: str, chat_id: int) -> bool:
             ):
                 continue
 
-            # Без підпису картинка все одно доречна, тож збій LLM її не скасовує.
-            try:
-                caption = await build_caption(message, rule, text)
-            except Exception as e:
-                config.log.exception(f"Reaction '{rule.name}': підпис не вдався: {e}")
-                caption = ""
+            caption = ""
+            if rule.generate_caption:
+                # Без підпису картинка все одно доречна, тож збій LLM її не скасовує.
+                try:
+                    caption = await build_caption(message, rule, text)
+                except Exception as e:
+                    config.log.exception(f"Reaction '{rule.name}': підпис не вдався: {e}")
 
             sent = await _send(message, image, caption)
             config.log.info(
