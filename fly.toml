@@ -8,6 +8,11 @@ primary_region = 'waw'
 
 [build]
 
+[env]
+  # Картинки для реакцій лежать на томі (див. [mounts]), а не в образі:
+  # у репозиторій вони не потрапляють. Заливаються через `fly ssh sftp`.
+  REACTIONS_DIR = "/app/data/reactions"
+
 [[vm]]
   memory = '512mb'
   cpu_kind = 'shared'

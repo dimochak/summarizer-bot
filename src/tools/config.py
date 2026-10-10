@@ -25,6 +25,15 @@ TRAITS_MODEL_NAME = os.getenv("TRAITS_LLM_MODEL", "gpt-5")
 AGENT_OPENAI_MODEL_NAME = os.getenv("AGENT_OPENAI_MODEL_NAME", "")
 AGENT_GEMINI_MODEL_NAME = os.getenv("AGENT_GEMINI_MODEL_NAME", "")
 
+# Звідки брати картинки для реакцій. Самі картинки в репозиторій не
+# потрапляють (.gitignore): локально вони лежать у assets/reactions/, а в
+# проді — на томі Fly, змонтованому в /app/data (див. fly.toml).
+REACTIONS_DIR = os.getenv(
+    "REACTIONS_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                 "assets", "reactions"),
+)
+
 # Стеля викликів інструментів на один хід. Захист від зациклення агента.
 AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "5"))
 
@@ -155,4 +164,5 @@ log.info(f"AGENT_OPENAI_MODEL_NAME={AGENT_OPENAI_MODEL_NAME}")
 log.info(f"AGENT_GEMINI_MODEL_NAME={AGENT_GEMINI_MODEL_NAME}")
 log.info(f"AGENT_MAX_STEPS={AGENT_MAX_STEPS}")
 log.info(f"AGENT_WEB_SEARCH={AGENT_WEB_SEARCH}")
+log.info(f"REACTIONS_DIR={REACTIONS_DIR}")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")

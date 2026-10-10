@@ -184,6 +184,26 @@ async def maybe_react(message, text: str, chat_id: int) -> bool:
     return False
 
 
+def log_reaction_assets() -> None:
+    """На старті показує, скільки картинок бачить кожне правило.
+
+    Картинки живуть поза репозиторієм, тож «реакція не спрацьовує, бо тека
+    порожня або не той шлях» — найімовірніша поломка. Краще бачити це в
+    логах одразу, ніж здогадуватись.
+    """
+    for rule in RULES:
+        directory = rule.images_dir
+        if not directory.is_dir():
+            config.log.warning(f"Reaction '{rule.name}': теки {directory} немає — реакція вимкнена")
+            continue
+        count = sum(
+            1 for p in directory.iterdir()
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS | ANIMATION_EXTENSIONS
+        )
+        level = config.log.info if count else config.log.warning
+        level(f"Reaction '{rule.name}': {count} картинок у {directory}")
+
+
 def schedule_reaction(context, message, text: str | None, chat_id: int) -> None:
     """Запускає реакцію у фоні, не затримуючи обробку повідомлення.
 

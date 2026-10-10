@@ -256,3 +256,31 @@ def test_schedule_reaction_only_for_candidates(monkeypatch, text, chats, expecte
     react_mod.schedule_reaction(context, FakeMessage(), text, CHAT)
 
     assert len(app.tasks) == expected
+
+
+# --- стартовий лог ---
+
+def test_startup_log_reports_missing_empty_and_filled(tmp_path, monkeypatch):
+    """Картинки живуть поза репозиторієм, тож порожня тека чи хибний шлях —
+    найімовірніша поломка. Лог на старті має це показати."""
+    messages = []
+    fake_log = type("Log", (), {
+        "info": staticmethod(lambda m: messages.append(("info", m))),
+        "warning": staticmethod(lambda m: messages.append(("warning", m))),
+    })
+    monkeypatch.setattr(config, "log", fake_log)
+    monkeypatch.setattr(rules_mod, "ASSETS_DIR", tmp_path)
+
+    react_mod.log_reaction_assets()
+    assert messages[-1][0] == "warning" and "немає" in messages[-1][1]
+
+    folder = tmp_path / "klitschko"
+    folder.mkdir()
+    (folder / "README.md").write_text("опис")
+    react_mod.log_reaction_assets()
+    assert messages[-1][0] == "warning" and "0 картинок" in messages[-1][1]
+
+    (folder / "a.jpg").write_bytes(b"x")
+    (folder / "b.mp4").write_bytes(b"x")
+    react_mod.log_reaction_assets()
+    assert messages[-1] == ("info", f"Reaction 'klitschko': 2 картинок у {folder}")

@@ -1,13 +1,16 @@
 """Правила реакцій-картинок: тема -> набір картинок -> кулдаун.
 
 Нове правило — це один запис у RULES і тека з картинками
-`assets/reactions/<name>/`.
+`<REACTIONS_DIR>/<name>/`. Самі картинки в git не потрапляють.
 """
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets" / "reactions"
+import src.tools.config as config
+
+# Картинки не зберігаються в репозиторії — шлях задає REACTIONS_DIR.
+ASSETS_DIR = Path(config.REACTIONS_DIR)
 
 
 @dataclass(frozen=True)

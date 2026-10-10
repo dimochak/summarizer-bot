@@ -365,3 +365,10 @@ data/
 
 # Claude Code worktrees та локальний стан
 .claude/
+
+# Картинки для реакцій не зберігаються в репозиторії: локально вони лежать
+# тут, а в проді — на томі Fly (REACTIONS_DIR=/app/data/reactions).
+# Описи тек (README.md) лишаються під git.
+assets/reactions/**
+!assets/reactions/**/
+!assets/reactions/**/README.md
