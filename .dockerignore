@@ -18,3 +18,8 @@ tests
 docs
 *.log
 .DS_Store
+
+# Картинки реакцій живуть на томі Fly, а не в образі. Без цього локальний
+# `flyctl deploy` запік би в образ усе, що лежить у теці на диску.
+assets/reactions/**
+!assets/reactions/**/README.md

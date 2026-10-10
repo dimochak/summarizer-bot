@@ -145,3 +145,27 @@ def test_self_repost_is_not_a_bayan(live_db):
         with live_db() as conn:
             conn.cursor().execute("DELETE FROM photo_messages WHERE chat_id = %s", (TEST_CHAT_ID,))
             conn.commit()
+
+
+def test_reaction_claim_is_atomic_and_respects_cooldown(live_db):
+    """Кулдаун реакцій проти справжньої Postgres: другий захват у межах кулдауну
+    має відмовити, а після нього — знову дозволити."""
+    from src.tools.db import claim_reaction, is_reaction_on_cooldown
+
+    rule, hour = "integration-test-rule", 3600
+
+    with live_db() as conn:
+        conn.cursor().execute("DELETE FROM reaction_state WHERE chat_id = %s", (TEST_CHAT_ID,))
+        conn.commit()
+
+    try:
+        assert claim_reaction(TEST_CHAT_ID, rule, 10_000, hour) is True, "перший захват"
+        assert is_reaction_on_cooldown(TEST_CHAT_ID, rule, 10_100, hour) is True
+        assert claim_reaction(TEST_CHAT_ID, rule, 10_100, hour) is False, "у межах кулдауну"
+        assert claim_reaction(TEST_CHAT_ID, rule, 10_000 + hour, hour) is True, "кулдаун минув"
+        assert claim_reaction(TEST_CHAT_ID, "other-rule", 10_100, hour) is True, \
+            "кулдаун окремий для кожного правила"
+    finally:
+        with live_db() as conn:
+            conn.cursor().execute("DELETE FROM reaction_state WHERE chat_id = %s", (TEST_CHAT_ID,))
+            conn.commit()

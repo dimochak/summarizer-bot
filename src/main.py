@@ -2,6 +2,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
 import src.tools.config as config
+from src.reactions.react import log_reaction_assets
 from src.tools.db import close_pool, init_db
 from src.tools.handlers import (
     on_message,
@@ -19,6 +20,7 @@ async def post_init(application):
     bot_info = await application.bot.get_me()
     config.BOT_USER_ID = bot_info.id
     config.log.info(f"Bot initialized with ID: {config.BOT_USER_ID}")
+    log_reaction_assets()
 
 
 async def post_shutdown(application):

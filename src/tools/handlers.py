@@ -34,6 +34,7 @@ from src.panbot.helpers import (
 )
 from src.panbot.formatting import format_telegram_html
 from src.panbot.exceptions import SarcasmLimitExceeded
+from src.reactions.react import schedule_reaction
 from src.summarizer.summarizer import summarize_day
 from src.tools.utils import utc_ts, message_link
 
@@ -280,6 +281,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         utc_ts(ts.astimezone(timezone.utc)),
     )
 
+    # Реакція-картинка на згадку теми (наприклад, Кличка) — у фоні.
+    schedule_reaction(context, msg, text, chat.id)
+
     # Check if PanBot should reply to this message
     if chat.id in config.PANBOT_CHAT_IDS:
         reply_decision = await should_reply_with_agent(msg)
@@ -376,6 +380,10 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         config.log.info(f"Photo/document stored: chat {chat.id} msg {msg.message_id}")
     except Exception as e:
         config.log.exception("upsert_photo_message failed: %s", e)
+
+    # Новини з каналів зазвичай пересилають фото з підписом, а такі
+    # повідомлення до on_message не доходять — тож реакцію перевіряємо й тут.
+    schedule_reaction(context, msg, getattr(msg, "caption", None), chat.id)
 
     # Check for duplicates if PanBot is enabled in this chat
     if chat.id in config.PANBOT_CHAT_IDS:
