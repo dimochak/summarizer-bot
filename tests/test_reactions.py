@@ -4,6 +4,7 @@
 картинок) мають відсікати повідомлення ДО виклику моделі, а кулдаун —
 витрачатись лише на підтверджену тему.
 """
+import dataclasses
 from datetime import datetime, timezone
 
 import pytest
@@ -129,12 +130,33 @@ def flow(monkeypatch, tmp_path):
     return state
 
 
-async def test_happy_path_sends_picture_with_caption(flow):
+@pytest.fixture
+def caption_rule(monkeypatch):
+    """Правило з увімкненим підписом — Кличко його свідомо не має."""
+    rule = dataclasses.replace(KLITSCHKO, generate_caption=True)
+    monkeypatch.setattr(react_mod, "matching_rules", lambda text: [rule])
+    return rule
+
+
+async def test_klitschko_sends_picture_without_caption(flow):
+    """Для Кличка картинка говорить сама за себе — модель підпис не пише."""
     msg = FakeMessage()
 
     assert await react_mod.maybe_react(msg, "Кличко знову щось сказав", CHAT) is True
 
     assert len(msg.sent) == 1
+    kind, kwargs = msg.sent[0]
+    assert kind == "photo"
+    assert "caption" not in kwargs
+    assert "build_caption" not in flow["calls"], "підпис вимкнений — модель не кличемо"
+    assert "add_message" not in flow["calls"], "без підпису в історію писати нічого"
+
+
+async def test_rule_with_caption_sends_caption(flow, caption_rule):
+    msg = FakeMessage()
+
+    assert await react_mod.maybe_react(msg, "Кличко знову щось сказав", CHAT) is True
+
     kind, kwargs = msg.sent[0]
     assert kind == "photo"
     assert "перевершив" in kwargs["caption"]
@@ -181,7 +203,7 @@ async def test_lost_claim_race_sends_nothing(flow):
     assert "build_caption" not in flow["calls"]
 
 
-async def test_caption_failure_still_sends_picture(flow):
+async def test_caption_failure_still_sends_picture(flow, caption_rule):
     flow["caption"] = RuntimeError("LLM недоступний")
     msg = FakeMessage()
 
