@@ -35,6 +35,7 @@ from src.panbot.helpers import (
 from src.panbot.formatting import format_telegram_html
 from src.panbot.exceptions import SarcasmLimitExceeded
 from src.reactions.react import schedule_reaction
+from src.voice.reply import schedule_voice
 from src.summarizer.summarizer import summarize_day
 from src.tools.utils import utc_ts, message_link
 
@@ -333,6 +334,20 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Щось пішло не так з моїм сарказмом... "
                 "Можливо, ваше питання було занадто складним для мого штучного інтелекту 🤖",
             )
+
+
+async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Голосові й кружечки: розшифровка й токсична відповідь — у фоні."""
+    msg: Message = update.effective_message
+    chat: Chat = update.effective_chat
+
+    if chat.id not in config.PANBOT_CHAT_IDS:
+        return
+
+    await db_call(ensure_chat_record, chat)
+
+    user_id = msg.from_user.id if msg.from_user else 0
+    schedule_voice(context, msg, is_creator=user_id == CREATOR_USER_ID)
 
 
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):

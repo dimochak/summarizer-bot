@@ -37,6 +37,7 @@ def live_db(monkeypatch):
         cur = conn.cursor()
         cur.execute("DELETE FROM messages WHERE chat_id = %s", (TEST_CHAT_ID,))
         cur.execute("DELETE FROM panbot_limits WHERE chat_id = %s", (TEST_CHAT_ID,))
+        cur.execute("DELETE FROM voice_limits WHERE chat_id = %s", (TEST_CHAT_ID,))
         conn.commit()
 
 
@@ -64,6 +65,10 @@ def test_cleanup_removes_only_data_older_than_retention(live_db):
                 "INSERT INTO panbot_limits (user_id, chat_id, date, count) VALUES (%s, %s, %s, %s)",
                 (1, TEST_CHAT_ID, dt.strftime("%Y-%m-%d"), count),
             )
+            cur.execute(
+                "INSERT INTO voice_limits (user_id, chat_id, date, count) VALUES (%s, %s, %s, %s)",
+                (1, TEST_CHAT_ID, dt.strftime("%Y-%m-%d"), count),
+            )
         conn.commit()
 
     cleanup_old_data(30)
@@ -78,9 +83,35 @@ def test_cleanup_removes_only_data_older_than_retention(live_db):
             "SELECT count(*) AS n FROM panbot_limits WHERE chat_id = %s", (TEST_CHAT_ID,)
         )
         remaining_limits = cur.fetchone()["n"]
+        cur.execute(
+            "SELECT count(*) AS n FROM voice_limits WHERE chat_id = %s", (TEST_CHAT_ID,)
+        )
+        remaining_voice_limits = cur.fetchone()["n"]
 
     assert remaining_messages == ["new message"]
     assert remaining_limits == 1
+    assert remaining_voice_limits == 1
+
+
+def test_voice_slots_count_past_limit_and_release_never_goes_negative(live_db):
+    from src.tools.db import claim_voice_slot, release_voice_slot
+
+    day = "2026-01-01"
+    assert [claim_voice_slot(1, TEST_CHAT_ID, day) for _ in range(3)] == [1, 2, 3]
+    # Інший день і інший чат — окремі лічильники.
+    assert claim_voice_slot(1, TEST_CHAT_ID, "2026-01-02") == 1
+    assert claim_voice_slot(1, TEST_CHAT_ID + 1, day) == 1
+
+    release_voice_slot(1, TEST_CHAT_ID, day)
+    assert claim_voice_slot(1, TEST_CHAT_ID, day) == 3
+
+    for _ in range(5):
+        release_voice_slot(1, TEST_CHAT_ID, day)
+    assert claim_voice_slot(1, TEST_CHAT_ID, day) == 1
+
+    with live_db() as conn:
+        conn.cursor().execute("DELETE FROM voice_limits WHERE chat_id = %s", (TEST_CHAT_ID + 1,))
+        conn.commit()
 
 
 def test_reply_chain_cte_walks_up_and_ignores_age(live_db):
