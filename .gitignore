@@ -372,3 +372,6 @@ data/
 assets/reactions/**
 !assets/reactions/**/
 !assets/reactions/**/README.md
+
+# Шаблон вище ([Ss]cripts) ігнорує будь-яку теку scripts — свої скрипти тримаємо в git.
+!/scripts/
