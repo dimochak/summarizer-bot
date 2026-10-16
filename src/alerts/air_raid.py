@@ -1,13 +1,19 @@
 """Гіфка на початок і кінець повітряної тривоги.
 
-Стан регіону береться з alerts.in.ua (IoT-ендпоінт: одна літера на регіон).
-Джоб опитує його раз на ALERTS_POLL_SECONDS і постить лише на переході
+Джерело стану задає ALERTS_SOURCE:
+    jaam         — jaam.net.ua, без токена; сам бере дані з офіційного
+                   ukrainealarm.com, тож це найближче до першоджерела;
+    alerts_in_ua — alerts.in.ua, потрібен токен.
+
+Джоб опитує джерело раз на ALERTS_POLL_SECONDS і постить лише на переході
 «немає тривоги -> тривога» чи навпаки. Сам стан зберігається в БД.
 
 Це розвага для чату, а не система оповіщення: дані сервісу можуть
 запізнюватись, а бот — лежати. Покладатись на нього не можна.
 """
 import asyncio
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from time import time
 
@@ -18,21 +24,39 @@ import src.tools.config as config
 from src.reactions.react import ANIMATION_EXTENSIONS, list_media, pick_media
 from src.tools.db import db_call, record_air_alert_state
 
-API_URL = "https://api.alerts.in.ua/v1/iot/active_air_raid_alerts/{uid}.json"
+JAAM_URL = "https://jaam.net.ua/alerts_statuses_v2.json"
+ALERTS_IN_UA_URL = "https://api.alerts.in.ua/v1/iot/active_air_raid_alerts/{uid}.json"
 TIMEOUT = 10.0
+# Обидва сервіси безкоштовні; хай бачать, хто до них ходить.
+USER_AGENT = "xxl-summarizer-bot (+https://github.com/dimochak/summarizer-bot)"
 
-# "A" — тривога в усьому регіоні, "P" — частково (в окремих районах чи
-# громадах), "N" — тривоги немає.
-ACTIVE_STATUSES = {"A", "P"}
-KNOWN_STATUSES = ACTIVE_STATUSES | {"N"}
+# Після 429 мовчки пропускаємо опитування стільки секунд: долбити далі —
+# прямий шлях до бану IP.
+RATE_LIMIT_BACKOFF = 60
+
+# alerts.in.ua: "A" — тривога в усьому регіоні, "P" — частково (в окремих
+# районах чи громадах), "N" — тривоги немає.
+ALERTS_IN_UA_ACTIVE = {"A", "P"}
+ALERTS_IN_UA_KNOWN = ALERTS_IN_UA_ACTIVE | {"N"}
 
 # Теки з гіфками поруч із теками реакцій.
 ALERT_DIR = "air_alert"
 ALL_CLEAR_DIR = "all_clear"
 
-# Last-Modified останньої відповіді. Сервіс просить кешувати через
+
+@dataclass(frozen=True)
+class AlertStatus:
+    active: bool
+    # Тривога лише в частині регіону. Рахуємо її як тривогу; поле — для лога.
+    partial: bool = False
+    # Коли джерело зафіксувало останню зміну. Є лише в JAAM; потрібне, щоб
+    # бачити в лозі, наскільки бот відстає від джерела.
+    changed_at: datetime | None = None
+
+
+# Last-Modified останньої відповіді alerts.in.ua. Сервіс просить кешувати через
 # If-Modified-Since: на 304 він не віддає тіло, і це дешевше для обох сторін.
-_cache: dict[str, str | None] = {"last_modified": None, "status": None}
+_cache: dict = {"last_modified": None, "status": None, "backoff_until": 0.0}
 
 # file_id уже завантажених у Telegram гіфок. Повторна відправка за file_id
 # миттєва, а завантаження файлу на 1-2 МБ — це секунди саме тоді, коли
@@ -40,42 +64,112 @@ _cache: dict[str, str | None] = {"last_modified": None, "status": None}
 _file_ids: dict[Path, str] = {}
 
 
-async def fetch_status(client: httpx.AsyncClient) -> str | None:
-    """Поточна літера статусу регіону або None, якщо дізнатись не вдалось.
+def region_key() -> str:
+    if config.ALERTS_SOURCE == "jaam":
+        return f"jaam:{config.ALERTS_JAAM_REGION}"
+    return f"alerts_in_ua:{config.ALERTS_REGION_UID}"
 
-    None означає «не знаємо», а не «тривоги немає»: на збої мережі чи 429
-    стан не змінюємо, інакше бот оголосив би відбій посеред тривоги.
-    """
-    headers = {"Authorization": f"Bearer {config.ALERTS_API_TOKEN}"}
-    if _cache["last_modified"]:
-        headers["If-Modified-Since"] = _cache["last_modified"]
 
+async def _get(client: httpx.AsyncClient, url: str, headers: dict) -> httpx.Response | None:
+    """GET з обробкою збоїв. None — відповіді немає або вона непридатна."""
+    if time() < _cache["backoff_until"]:
+        return None
     try:
         response = await client.get(
-            API_URL.format(uid=config.ALERTS_REGION_UID), headers=headers, timeout=TIMEOUT
+            url, headers={"User-Agent": USER_AGENT, **headers}, timeout=TIMEOUT
         )
     except httpx.HTTPError as e:
         config.log.warning(f"Air raid: запит не вдався: {e!r}")
         return None
 
-    if response.status_code == 304:
-        return _cache["status"]
-    if response.status_code != 200:
+    if response.status_code == 429:
+        _cache["backoff_until"] = time() + RATE_LIMIT_BACKOFF
+        config.log.warning(f"Air raid: 429, пауза {RATE_LIMIT_BACKOFF}с")
+        return None
+    if response.status_code not in (200, 304):
         config.log.warning(f"Air raid: HTTP {response.status_code}: {response.text[:200]}")
         return None
+    return response
 
+
+def _json(response: httpx.Response):
     try:
-        status = response.json()
+        return response.json()
     except ValueError:
         config.log.warning(f"Air raid: не JSON: {response.text[:200]}")
         return None
-    if status not in KNOWN_STATUSES:
-        config.log.warning(f"Air raid: невідомий статус {status!r}")
+
+
+def _parse_time(value) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
         return None
 
-    _cache["status"] = status
-    _cache["last_modified"] = response.headers.get("Last-Modified")
-    return status
+
+async def fetch_jaam(client: httpx.AsyncClient) -> AlertStatus | None:
+    response = await _get(client, JAAM_URL, {})
+    if response is None or response.status_code != 200:
+        return None
+    data = _json(response)
+    states = data.get("states") if isinstance(data, dict) else None
+    if not isinstance(states, dict):
+        config.log.warning(f"Air raid: JAAM без states: {response.text[:200]}")
+        return None
+
+    entry = states.get(config.ALERTS_JAAM_REGION)
+    if not isinstance(entry, dict) or not isinstance(entry.get("alertnow"), bool):
+        # Найімовірніше — описка в ALERTS_JAAM_REGION; підказуємо правильні ключі.
+        config.log.warning(
+            f"Air raid: у JAAM немає регіону {config.ALERTS_JAAM_REGION!r}. "
+            f"Є: {', '.join(states)}"
+        )
+        return None
+
+    return AlertStatus(
+        active=entry["alertnow"],
+        partial=bool(entry.get("district")),
+        changed_at=_parse_time(entry.get("changes")),
+    )
+
+
+async def fetch_alerts_in_ua(client: httpx.AsyncClient) -> AlertStatus | None:
+    headers = {"Authorization": f"Bearer {config.ALERTS_API_TOKEN}"}
+    if _cache["last_modified"]:
+        headers["If-Modified-Since"] = _cache["last_modified"]
+
+    response = await _get(
+        client, ALERTS_IN_UA_URL.format(uid=config.ALERTS_REGION_UID), headers
+    )
+    if response is None:
+        return None
+    if response.status_code == 304:
+        status = _cache["status"]
+    else:
+        status = _json(response)
+        if status not in ALERTS_IN_UA_KNOWN:
+            config.log.warning(f"Air raid: невідомий статус {status!r}")
+            return None
+        _cache["status"] = status
+        _cache["last_modified"] = response.headers.get("Last-Modified")
+
+    if status is None:
+        return None
+    return AlertStatus(active=status in ALERTS_IN_UA_ACTIVE, partial=status == "P")
+
+
+SOURCES = {"jaam": fetch_jaam, "alerts_in_ua": fetch_alerts_in_ua}
+
+
+async def fetch_status(client: httpx.AsyncClient) -> AlertStatus | None:
+    """Поточний стан регіону або None, якщо дізнатись не вдалось.
+
+    None означає «не знаємо», а не «тривоги немає»: на збої мережі чи 429
+    стан не змінюємо, інакше бот оголосив би відбій посеред тривоги.
+    """
+    return await SOURCES[config.ALERTS_SOURCE](client)
 
 
 def alert_media_dir(active: bool) -> Path:
@@ -141,20 +235,25 @@ async def check_air_raid(bot, client: httpx.AsyncClient) -> None:
     if status is None:
         return
 
-    active = status in ACTIVE_STATUSES
-    change = await db_call(
-        record_air_alert_state, config.ALERTS_REGION_UID, active, int(time())
-    )
+    active = status.active
+    change = await db_call(record_air_alert_state, region_key(), active, int(time()))
     if change != "changed":
         return
 
     # Стан уже збережено, тож збій відправки не призведе до повторного поста
     # на кожному наступному опитуванні.
-    config.log.info(f"Air raid: {'тривога' if active else 'відбій'} (статус {status})")
     # У всі чати одночасно: повільний чат не має затримувати решту.
     await asyncio.gather(
         *(_announce_safely(bot, chat_id, active) for chat_id in config.ALERTS_CHAT_IDS)
     )
+
+    what = "тривога" if active else "відбій"
+    if status.partial:
+        what += " (частина регіону)"
+    lag = ""
+    if status.changed_at is not None:
+        lag = f", відставання {time() - status.changed_at.timestamp():.0f}с від джерела"
+    config.log.info(f"Air raid: {what}, {config.ALERTS_SOURCE}{lag}")
 
 
 async def air_raid_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -169,9 +268,20 @@ async def air_raid_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         config.log.exception(f"Air raid job failed: {e}")
 
 
+def _disabled_reason() -> str | None:
+    if not config.ALERTS_CHAT_IDS:
+        return "немає ALERTS_CHAT_IDS"
+    if config.ALERTS_SOURCE not in SOURCES:
+        return f"невідоме ALERTS_SOURCE={config.ALERTS_SOURCE!r} (є: {', '.join(SOURCES)})"
+    if config.ALERTS_SOURCE == "alerts_in_ua" and not config.ALERTS_API_TOKEN:
+        return "alerts_in_ua без ALERTS_API_TOKEN"
+    return None
+
+
 def schedule_air_raid(app: Application) -> None:
-    if not config.ALERTS_API_TOKEN or not config.ALERTS_CHAT_IDS:
-        config.log.info("Air raid: вимкнено (немає ALERTS_API_TOKEN або ALERTS_CHAT_IDS)")
+    reason = _disabled_reason()
+    if reason:
+        config.log.info(f"Air raid: вимкнено ({reason})")
         return
     app.job_queue.run_repeating(
         air_raid_job, interval=config.ALERTS_POLL_SECONDS, first=5, name="air_raid"
@@ -180,10 +290,9 @@ def schedule_air_raid(app: Application) -> None:
         directory = alert_media_dir(active)
         config.log.info(f"Air raid: гіфок у {directory}: {len(list_media(directory))}")
     config.log.info(
-        f"Air raid: опитування кожні {config.ALERTS_POLL_SECONDS}с, "
-        f"регіон {config.ALERTS_REGION_UID}, чати {config.ALERTS_CHAT_IDS}"
+        f"Air raid: {config.ALERTS_SOURCE}, регіон {region_key()}, "
+        f"опитування кожні {config.ALERTS_POLL_SECONDS}с, чати {config.ALERTS_CHAT_IDS}"
     )
-
 
 
 async def close_air_raid_client(app: Application) -> None:

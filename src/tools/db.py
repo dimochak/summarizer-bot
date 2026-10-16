@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS reaction_state (
 );
 
 CREATE TABLE IF NOT EXISTS air_alert_state (
-    region_uid INTEGER PRIMARY KEY,
+    region TEXT PRIMARY KEY,
     active BOOLEAN NOT NULL,
     changed_utc BIGINT NOT NULL
 );
@@ -337,7 +337,7 @@ def claim_reaction(chat_id: int, rule: str, now_ts: int, cooldown_s: int) -> boo
         return claimed
 
 
-def record_air_alert_state(region_uid: int, active: bool, now_ts: int) -> str:
+def record_air_alert_state(region: str, active: bool, now_ts: int) -> str:
     """Зберігає стан тривоги й каже, що сталося.
 
     "init"    — стану ще не було: записали, але це не перехід, постити не треба;
@@ -345,22 +345,23 @@ def record_air_alert_state(region_uid: int, active: bool, now_ts: int) -> str:
     "changed" — тривога почалась або скінчилась.
 
     Стан у БД, а не в памʼяті, щоб деплой посеред тривоги не загубив відбій.
+    region — «джерело:регіон», тож зміна джерела починає з чистого «init».
     """
     with db() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT active FROM air_alert_state WHERE region_uid=%s FOR UPDATE",
-            (region_uid,),
+            "SELECT active FROM air_alert_state WHERE region=%s FOR UPDATE",
+            (region,),
         )
         row = cur.fetchone()
         if row is not None and row["active"] == active:
             conn.commit()
             return "same"
         cur.execute(
-            """INSERT INTO air_alert_state (region_uid, active, changed_utc)
+            """INSERT INTO air_alert_state (region, active, changed_utc)
                VALUES (%s, %s, %s)
-               ON CONFLICT (region_uid) DO UPDATE
+               ON CONFLICT (region) DO UPDATE
                  SET active = EXCLUDED.active, changed_utc = EXCLUDED.changed_utc""",
-            (region_uid, active, now_ts),
+            (region, active, now_ts),
         )
         conn.commit()
         return "init" if row is None else "changed"

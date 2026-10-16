@@ -34,16 +34,24 @@ REACTIONS_DIR = os.getenv(
                  "assets", "reactions"),
 )
 
-# Повітряна тривога через API alerts.in.ua. Токен видають за заявкою на
-# alerts.in.ua/api-request. Без токена чи без чатів функція вимкнена.
+# Повітряна тривога. Джерела:
+#   jaam         — jaam.net.ua, токен не потрібен. Сам опитує офіційний
+#                  ukrainealarm.com кожні 3 с. Ліміти не задокументовані,
+#                  перед сервером Cloudflare, тож опитуємо не частіше 10 с.
+#   alerts_in_ua — alerts.in.ua, токен за заявкою на alerts.in.ua/api-request.
+#                  Ліміт: мʼякий 8-10 запитів на хвилину, жорсткий 12.
+ALERTS_SOURCE = os.getenv("ALERTS_SOURCE", "jaam").strip().lower()
 ALERTS_API_TOKEN = os.getenv("ALERTS_API_TOKEN", "")
+# Ключ області в JAAM — її назва: «Київ» (місто), «Київська область».
+ALERTS_JAAM_REGION = os.getenv("ALERTS_JAAM_REGION", "Київ")
 # UID регіону в alerts.in.ua: 31 — м. Київ, 14 — Київська область.
 ALERTS_REGION_UID = int(os.getenv("ALERTS_REGION_UID", "31"))
 ALERTS_REGION_NAME = os.getenv("ALERTS_REGION_NAME", "м. Київ")
-# Ліміт сервісу: мʼякий 8-10 запитів на хвилину з однієї IP, жорсткий 12.
-# 8 секунд — це 7.5 на хвилину: найчастіше, що вкладається в мʼякий ліміт.
-# Частіше не можна: систематичне перевищення — бан IP і токена.
-ALERTS_POLL_SECONDS = max(8, int(os.getenv("ALERTS_POLL_SECONDS", "8")))
+# Частіше за ці межі не опитуємо: систематичне перевищення — бан IP.
+_ALERTS_MIN_POLL = {"jaam": 10, "alerts_in_ua": 8}.get(ALERTS_SOURCE, 10)
+ALERTS_POLL_SECONDS = max(
+    _ALERTS_MIN_POLL, int(os.getenv("ALERTS_POLL_SECONDS", str(_ALERTS_MIN_POLL)))
+)
 _alerts_env = os.getenv("ALERTS_CHAT_IDS")
 ALERTS_CHAT_IDS = set()
 if _alerts_env:
@@ -180,7 +188,9 @@ log.info(f"AGENT_GEMINI_MODEL_NAME={AGENT_GEMINI_MODEL_NAME}")
 log.info(f"AGENT_MAX_STEPS={AGENT_MAX_STEPS}")
 log.info(f"AGENT_WEB_SEARCH={AGENT_WEB_SEARCH}")
 log.info(f"REACTIONS_DIR={REACTIONS_DIR}")
+log.info(f"ALERTS_SOURCE={ALERTS_SOURCE}")
 log.info(f"ALERTS_API_TOKEN={'set' if ALERTS_API_TOKEN else 'not set'}")
+log.info(f"ALERTS_JAAM_REGION={ALERTS_JAAM_REGION}")
 log.info(f"ALERTS_REGION_UID={ALERTS_REGION_UID} ({ALERTS_REGION_NAME})")
 log.info(f"ALERTS_POLL_SECONDS={ALERTS_POLL_SECONDS}")
 log.info(f"ALERTS_CHAT_IDS={ALERTS_CHAT_IDS}")
