@@ -132,7 +132,10 @@ logger.add(
         "<cyan>{name}:{function}:{line}</cyan>: "
         "<level>{message}</level>"
     ),
-    enqueue=True
+    enqueue=True,
+    # diagnose друкує значення змінних у трейсбеку, а серед них Application,
+    # чий repr містить токен бота. Так токен і потрапив у логи Fly.
+    diagnose=False,
 )
 
 # Also duplicate logs to stderr/console, not only file
@@ -145,7 +148,10 @@ logger.add(
         "<cyan>{name}:{function}:{line}</cyan>: "
         "<level>{message}</level>"
     ),
-    enqueue=True
+    enqueue=True,
+    # diagnose друкує значення змінних у трейсбеку, а серед них Application,
+    # чий repr містить токен бота. Так токен і потрапив у логи Fly.
+    diagnose=False,
 )
 
 class InterceptHandler(logging.Handler):

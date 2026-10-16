@@ -87,6 +87,10 @@ def get_pool() -> ConnectionPool:
             min_size=1,
             max_size=int(os.getenv("DB_POOL_MAX_SIZE", "10")),
             kwargs={"row_factory": dict_row},
+            # Скільки чекати вільного зʼєднання. Дефолт psycopg — 30 с, а PTB
+            # обробляє апдейти по одному: коли база лежить, кожне повідомлення
+            # тримало чергу пів хвилини, і бот відставав на години.
+            timeout=float(os.getenv("DB_POOL_TIMEOUT", "5")),
             open=True,
         )
     return _pool

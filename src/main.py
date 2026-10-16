@@ -1,3 +1,5 @@
+from psycopg import OperationalError
+from psycopg_pool import PoolTimeout
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
@@ -24,6 +26,20 @@ async def post_init(application):
     log_reaction_assets()
 
 
+async def on_error(update, context):
+    """Один рядок замість «No error handlers are registered» і стіни трейсбеку.
+
+    Збій БД чи мережі валить кожне повідомлення, тож повний трейсбек на кожне
+    лише ховає суть. Трейсбек лишаємо тільки для неочікуваних помилок.
+    """
+    error = context.error
+    chat = getattr(getattr(update, "effective_chat", None), "id", None)
+    if isinstance(error, (PoolTimeout, OperationalError)):
+        config.log.error(f"DB unavailable (chat {chat}): {error}")
+        return
+    config.log.opt(exception=error).error(f"Unhandled error (chat {chat}): {error!r}")
+
+
 async def post_shutdown(application):
     await close_air_raid_client(application)
     close_pool()
@@ -40,6 +56,8 @@ def main():
         .post_shutdown(post_shutdown)
         .build()
     )
+
+    app.add_error_handler(on_error)
 
     app.add_handler(
         MessageHandler(~filters.StatusUpdate.ALL &
