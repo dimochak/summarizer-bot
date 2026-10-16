@@ -52,4 +52,18 @@ RULES: list[ReactionRule] = [
         # Картинка говорить сама за себе.
         generate_caption=False,
     ),
+    ReactionRule(
+        name="trump",
+        # «Трамплін» починається так само, тож відсікаємо його вже регуляркою,
+        # не витрачаючи виклик моделі. Латиницею — ціле слово: інакше
+        # спрацювало б на «trumpet».
+        pattern=re.compile(r"трамп(?!л[іи]н)|\btrump\b", re.IGNORECASE),
+        subject="Дональд Трамп — президент США",
+        exclusions=(
+            "Англійське «trump» у загальному значенні («trump card» — козир) "
+            "— НЕ рахується."
+        ),
+        cooldown_seconds=3 * 3600,
+        generate_caption=False,
+    ),
 ]

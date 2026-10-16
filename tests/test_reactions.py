@@ -14,7 +14,8 @@ import src.reactions.rules as rules_mod
 import src.tools.config as config
 
 CHAT = -100500
-KLITSCHKO = rules_mod.RULES[0]
+KLITSCHKO = next(r for r in rules_mod.RULES if r.name == "klitschko")
+TRUMP = next(r for r in rules_mod.RULES if r.name == "trump")
 
 
 # --- регулярка ---
@@ -37,6 +38,30 @@ def test_pattern_catches_surname_forms(text):
 @pytest.mark.parametrize("text", ["привіт усім", "заклики до дії", "", None])
 def test_pattern_ignores_unrelated(text):
     assert react_mod.matching_rules(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Трамп знову підвищив мита",
+        "заява Трампа",
+        "Трампу не сподобалось",
+        "зустріч із Трампом",
+        "Trump said something again",
+    ],
+)
+def test_trump_pattern_catches_surname_forms(text):
+    assert react_mod.matching_rules(text) == [TRUMP]
+
+
+@pytest.mark.parametrize("text", ["стрибнув з трампліна", "новий трамплін", "he plays the trumpet"])
+def test_trump_pattern_ignores_lookalikes(text):
+    """Ці збіги відсікає сама регулярка — модель на них не кличеться."""
+    assert react_mod.matching_rules(text) == []
+
+
+def test_both_subjects_match_but_only_one_reaction_is_possible():
+    assert react_mod.matching_rules("Кличко і Трамп в одному кадрі") == [KLITSCHKO, TRUMP]
 
 
 def test_nickname_also_matches_regex_and_is_left_to_llm():
@@ -292,6 +317,7 @@ def test_startup_log_reports_missing_empty_and_filled(tmp_path, monkeypatch):
     })
     monkeypatch.setattr(config, "log", fake_log)
     monkeypatch.setattr(rules_mod, "ASSETS_DIR", tmp_path)
+    monkeypatch.setattr(react_mod, "RULES", [KLITSCHKO])
 
     react_mod.log_reaction_assets()
     assert messages[-1][0] == "warning" and "немає" in messages[-1][1]
