@@ -87,6 +87,15 @@ AGENT_CHAT_IDS = set()
 if _agent_env:
     AGENT_CHAT_IDS = {int(x.strip()) for x in _agent_env.split(",") if x.strip()}
 
+# Чати, де бот розшифровує голосові й кружечки. Порожньо — вимкнено: спершу
+# вмикаємо на тестовому чаті й перевіряємо розпізнавання на справжніх записах,
+# потім на решті. VOICE_DAILY_LIMIT=0 вимикачем не є: тоді бот на перше голосове
+# людини за день відповідає попередженням про ліміт.
+_voice_env = os.getenv("VOICE_CHAT_IDS")
+VOICE_CHAT_IDS = set()
+if _voice_env:
+    VOICE_CHAT_IDS = {int(x.strip()) for x in _voice_env.split(",") if x.strip()}
+
 
 # Чати, налаштовані на AI-підсумки (мають конкретного провайдера).
 ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
@@ -175,6 +184,7 @@ log.info(f"AGENT_MAX_STEPS={AGENT_MAX_STEPS}")
 log.info(f"AGENT_WEB_SEARCH={AGENT_WEB_SEARCH}")
 log.info(f"REACTIONS_DIR={REACTIONS_DIR}")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")
+log.info(f"VOICE_CHAT_IDS={VOICE_CHAT_IDS}")
 log.info(f"VOICE_GEMINI_MODEL_NAME={VOICE_GEMINI_MODEL_NAME}")
 log.info(f"VOICE_MAX_SECONDS={VOICE_MAX_SECONDS}")
 log.info(f"VOICE_DAILY_LIMIT={VOICE_DAILY_LIMIT}")

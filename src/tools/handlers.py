@@ -341,7 +341,7 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg: Message = update.effective_message
     chat: Chat = update.effective_chat
 
-    if chat.id not in config.PANBOT_CHAT_IDS:
+    if chat.id not in config.VOICE_CHAT_IDS:
         return
 
     await db_call(ensure_chat_record, chat)

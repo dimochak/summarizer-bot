@@ -16,7 +16,7 @@ When someone sends a voice message or a video note (кружечок) to a PanBo
 
 | Question | Decision |
 |---|---|
-| Which chats | `PANBOT_CHAT_IDS`, no separate rollout list |
+| Which chats | `VOICE_CHAT_IDS`, same parsing as `AGENT_CHAT_IDS`; empty by default, so the first deploy changes nothing. Originally `PANBOT_CHAT_IDS`; changed after review so it can be rolled out on a test chat first and switched off without a code change (`VOICE_DAILY_LIMIT=0` is not an off switch: the first voice message of the day still gets the limit warning) |
 | Forwarded voice messages | Mock the person who forwarded it, with separate phrase lists (`forwarded` in the templates) |
 | Video notes | Supported in v1, same pipeline; Gemini takes `video/mp4` directly |
 | Quota | 5 per person per chat per day (`VOICE_DAILY_LIMIT`). The first one over the limit gets one warning; later ones are ignored silently |
@@ -42,7 +42,7 @@ Audio costs 32 tokens per second (1 min = 1,920 tokens). The inline request limi
 ```
 voice / video-note update
  └─ on_voice                               (src/tools/handlers.py, thin)
-     ├─ chat ∉ PANBOT_CHAT_IDS → return
+     ├─ chat ∉ VOICE_CHAT_IDS → return
      ├─ ensure_chat_record
      └─ schedule_voice(context, msg, is_creator)        (background task; PTB not blocked)
           └─ handle_voice                                (src/voice/reply.py)
@@ -74,6 +74,7 @@ voice / video-note update
 ### Config
 
 ```dotenv
+VOICE_CHAT_IDS=             # empty — feature off
 VOICE_GEMINI_MODEL_NAME=    # empty — GEMINI_MODEL_NAME
 VOICE_MAX_SECONDS=300
 VOICE_DAILY_LIMIT=5

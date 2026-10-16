@@ -505,7 +505,8 @@ class FakeApplication:
         coroutine.close()
 
 
-async def test_on_voice_schedules_only_in_panbot_chats(monkeypatch):
+async def test_on_voice_schedules_only_in_voice_chats(monkeypatch):
+    """Розшифровка вмикається по чатах: PanBot-чат без VOICE_CHAT_IDS голосові не чіпає."""
     import src.tools.handlers as handlers
 
     scheduled = []
@@ -522,11 +523,18 @@ async def test_on_voice_schedules_only_in_panbot_chats(monkeypatch):
     msg = FakeMessage(user_id=handlers.CREATOR_USER_ID)
     update = type("Upd", (), {"effective_message": msg, "effective_chat": msg.chat})()
 
-    monkeypatch.setattr(config, "PANBOT_CHAT_IDS", set())
+    monkeypatch.setattr(config, "PANBOT_CHAT_IDS", {CHAT})
+
+    # Порожній список — безпечний дефолт першого деплою: функція вимкнена.
+    monkeypatch.setattr(config, "VOICE_CHAT_IDS", set())
     await handlers.on_voice(update, None)
     assert scheduled == []
 
-    monkeypatch.setattr(config, "PANBOT_CHAT_IDS", {CHAT})
+    monkeypatch.setattr(config, "VOICE_CHAT_IDS", {CHAT + 1})
+    await handlers.on_voice(update, None)
+    assert scheduled == [], "чат не зі списку не має запускати розшифровку"
+
+    monkeypatch.setattr(config, "VOICE_CHAT_IDS", {CHAT, CHAT + 1})
     await handlers.on_voice(update, None)
     assert scheduled == [True]
 
