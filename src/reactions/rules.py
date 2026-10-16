@@ -48,7 +48,7 @@ RULES: list[ReactionRule] = [
             "Слово «кличка» у значенні прізвиська тварини чи людини "
             "(«кличка собаки», «яка в нього кличка») — НЕ рахується."
         ),
-        cooldown_seconds=3 * 3600,
+        cooldown_seconds=3600,
         # Картинка говорить сама за себе.
         generate_caption=False,
     ),
@@ -63,7 +63,7 @@ RULES: list[ReactionRule] = [
             "Англійське «trump» у загальному значенні («trump card» — козир) "
             "— НЕ рахується."
         ),
-        cooldown_seconds=3 * 3600,
+        cooldown_seconds=3600,
         generate_caption=False,
     ),
 ]
