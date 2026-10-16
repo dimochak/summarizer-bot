@@ -20,6 +20,7 @@ def setup(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "ALERTS_CHAT_IDS", {CHAT})
     monkeypatch.setattr(config, "REACTIONS_DIR", str(tmp_path))
     monkeypatch.setattr(air_raid, "_cache", {"last_modified": None, "status": None})
+    monkeypatch.setattr(air_raid, "_file_ids", {})
 
 
 def client_returning(*responses):
@@ -42,15 +43,27 @@ def client_returning(*responses):
 class FakeBot:
     def __init__(self):
         self.sent = []
+        self.uploads = 0
+
+    def _media(self, value):
+        if isinstance(value, str):
+            return value
+        self.uploads += 1
+        return f"file-id-{self.uploads}"
 
     async def send_message(self, chat_id, text):
         self.sent.append(("text", chat_id, text))
 
     async def send_animation(self, chat_id, animation, caption):
         self.sent.append(("animation", chat_id, caption))
+        file_id = self._media(animation)
+        return type("Msg", (), {"animation": type("A", (), {"file_id": file_id})()})()
 
     async def send_photo(self, chat_id, photo, caption):
         self.sent.append(("photo", chat_id, caption))
+        file_id = self._media(photo)
+        return type("Msg", (), {"animation": None, "video": None, "document": None,
+                                "photo": [type("P", (), {"file_id": file_id})()]})()
 
 
 @pytest.fixture
@@ -192,6 +205,37 @@ async def test_all_clear_uses_its_own_folder(tmp_path):
 
     await air_raid.announce(bot, CHAT, active=False)
     assert bot.sent == [("photo", CHAT, "✅ Відбій тривоги — м. Київ")]
+
+
+async def test_gif_uploaded_once_then_reused_by_file_id(tmp_path):
+    """Завантаження гіфки — секунди; другий раз шлемо за file_id миттєво."""
+    folder = tmp_path / "air_alert"
+    folder.mkdir()
+    (folder / "siren.mp4").write_bytes(b"mp4")
+    bot = FakeBot()
+
+    await air_raid.announce(bot, 1, active=True)
+    await air_raid.announce(bot, 2, active=True)
+    assert bot.uploads == 1
+
+
+async def test_stale_file_id_falls_back_to_upload(tmp_path):
+    folder = tmp_path / "air_alert"
+    folder.mkdir()
+    gif = folder / "siren.gif"
+    gif.write_bytes(b"gif")
+    air_raid._file_ids[gif] = "expired"
+
+    class PickyBot(FakeBot):
+        async def send_animation(self, chat_id, animation, caption):
+            if animation == "expired":
+                raise RuntimeError("wrong file identifier")
+            return await super().send_animation(chat_id, animation, caption)
+
+    bot = PickyBot()
+    await air_raid.announce(bot, CHAT, active=True)
+    assert bot.uploads == 1
+    assert air_raid._file_ids[gif] == "file-id-1"
 
 
 async def test_no_gifs_falls_back_to_text():

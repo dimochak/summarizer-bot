@@ -7,6 +7,7 @@
 Це розвага для чату, а не система оповіщення: дані сервісу можуть
 запізнюватись, а бот — лежати. Покладатись на нього не можна.
 """
+import asyncio
 from pathlib import Path
 from time import time
 
@@ -32,6 +33,11 @@ ALL_CLEAR_DIR = "all_clear"
 # Last-Modified останньої відповіді. Сервіс просить кешувати через
 # If-Modified-Since: на 304 він не віддає тіло, і це дешевше для обох сторін.
 _cache: dict[str, str | None] = {"last_modified": None, "status": None}
+
+# file_id уже завантажених у Telegram гіфок. Повторна відправка за file_id
+# миттєва, а завантаження файлу на 1-2 МБ — це секунди саме тоді, коли
+# швидкість важлива найбільше. Живе до рестарту.
+_file_ids: dict[Path, str] = {}
 
 
 async def fetch_status(client: httpx.AsyncClient) -> str | None:
@@ -82,6 +88,37 @@ def alert_caption(active: bool) -> str:
     return f"✅ Відбій тривоги — {config.ALERTS_REGION_NAME}"
 
 
+def _sent_file_id(message) -> str | None:
+    # Telegram може повернути mp4 як animation, video чи document.
+    for attr in ("animation", "video", "document"):
+        media = getattr(message, attr, None)
+        if media is not None:
+            return media.file_id
+    photos = getattr(message, "photo", None)
+    return photos[-1].file_id if photos else None
+
+
+async def _send_media(bot, chat_id: int, media: Path, caption: str):
+    send = bot.send_animation if media.suffix.lower() in ANIMATION_EXTENSIONS else bot.send_photo
+    field = "animation" if send == bot.send_animation else "photo"
+
+    cached = _file_ids.get(media)
+    if cached:
+        try:
+            return await send(chat_id=chat_id, caption=caption, **{field: cached})
+        except Exception as e:
+            # file_id міг протухнути — тоді просто завантажуємо файл заново.
+            config.log.warning(f"Air raid: file_id для {media.name} не спрацював: {e}")
+            _file_ids.pop(media, None)
+
+    with media.open("rb") as f:
+        sent = await send(chat_id=chat_id, caption=caption, **{field: f})
+    file_id = _sent_file_id(sent)
+    if file_id:
+        _file_ids[media] = file_id
+    return sent
+
+
 async def announce(bot, chat_id: int, active: bool) -> None:
     """Гіфка з коротким підписом; якщо гіфок немає — просто текст."""
     caption = alert_caption(active)
@@ -89,11 +126,14 @@ async def announce(bot, chat_id: int, active: bool) -> None:
     if media is None:
         await bot.send_message(chat_id=chat_id, text=caption)
         return
-    with media.open("rb") as f:
-        if media.suffix.lower() in ANIMATION_EXTENSIONS:
-            await bot.send_animation(chat_id=chat_id, animation=f, caption=caption)
-        else:
-            await bot.send_photo(chat_id=chat_id, photo=f, caption=caption)
+    await _send_media(bot, chat_id, media, caption)
+
+
+async def _announce_safely(bot, chat_id: int, active: bool) -> None:
+    try:
+        await announce(bot, chat_id, active)
+    except Exception as e:
+        config.log.exception(f"Air raid: не вдалось надіслати в {chat_id}: {e}")
 
 
 async def check_air_raid(bot, client: httpx.AsyncClient) -> None:
@@ -111,11 +151,10 @@ async def check_air_raid(bot, client: httpx.AsyncClient) -> None:
     # Стан уже збережено, тож збій відправки не призведе до повторного поста
     # на кожному наступному опитуванні.
     config.log.info(f"Air raid: {'тривога' if active else 'відбій'} (статус {status})")
-    for chat_id in config.ALERTS_CHAT_IDS:
-        try:
-            await announce(bot, chat_id, active)
-        except Exception as e:
-            config.log.exception(f"Air raid: не вдалось надіслати в {chat_id}: {e}")
+    # У всі чати одночасно: повільний чат не має затримувати решту.
+    await asyncio.gather(
+        *(_announce_safely(bot, chat_id, active) for chat_id in config.ALERTS_CHAT_IDS)
+    )
 
 
 async def air_raid_job(context: ContextTypes.DEFAULT_TYPE) -> None:

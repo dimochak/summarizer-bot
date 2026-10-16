@@ -40,8 +40,10 @@ ALERTS_API_TOKEN = os.getenv("ALERTS_API_TOKEN", "")
 # UID регіону в alerts.in.ua: 31 — м. Київ, 14 — Київська область.
 ALERTS_REGION_UID = int(os.getenv("ALERTS_REGION_UID", "31"))
 ALERTS_REGION_NAME = os.getenv("ALERTS_REGION_NAME", "м. Київ")
-# Ліміт сервісу — 8-10 запитів на хвилину з однієї IP. 20 секунд — це 3.
-ALERTS_POLL_SECONDS = int(os.getenv("ALERTS_POLL_SECONDS", "20"))
+# Ліміт сервісу: мʼякий 8-10 запитів на хвилину з однієї IP, жорсткий 12.
+# 8 секунд — це 7.5 на хвилину: найчастіше, що вкладається в мʼякий ліміт.
+# Частіше не можна: систематичне перевищення — бан IP і токена.
+ALERTS_POLL_SECONDS = max(8, int(os.getenv("ALERTS_POLL_SECONDS", "8")))
 _alerts_env = os.getenv("ALERTS_CHAT_IDS")
 ALERTS_CHAT_IDS = set()
 if _alerts_env:
