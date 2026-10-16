@@ -54,15 +54,22 @@ def matching_rules(text: str) -> list[ReactionRule]:
     return [rule for rule in RULES if rule.pattern.search(text)]
 
 
-def pick_image(rule: ReactionRule) -> Path | None:
-    directory = rule.images_dir
+def list_media(directory: Path) -> list[Path]:
     if not directory.is_dir():
-        return None
-    candidates = [
+        return []
+    return [
         p for p in directory.iterdir()
         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS | ANIMATION_EXTENSIONS
     ]
+
+
+def pick_media(directory: Path) -> Path | None:
+    candidates = list_media(directory)
     return random.choice(candidates) if candidates else None
+
+
+def pick_image(rule: ReactionRule) -> Path | None:
+    return pick_media(rule.images_dir)
 
 
 async def confirm_mention(rule: ReactionRule, text: str, chat_id: int) -> bool:
@@ -197,10 +204,7 @@ def log_reaction_assets() -> None:
         if not directory.is_dir():
             config.log.warning(f"Reaction '{rule.name}': теки {directory} немає — реакція вимкнена")
             continue
-        count = sum(
-            1 for p in directory.iterdir()
-            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS | ANIMATION_EXTENSIONS
-        )
+        count = len(list_media(directory))
         level = config.log.info if count else config.log.warning
         level(f"Reaction '{rule.name}': {count} картинок у {directory}")
 

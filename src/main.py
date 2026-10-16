@@ -2,6 +2,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
 import src.tools.config as config
+from src.alerts.air_raid import close_air_raid_client, schedule_air_raid
 from src.reactions.react import log_reaction_assets
 from src.tools.db import close_pool, init_db
 from src.tools.handlers import (
@@ -24,6 +25,7 @@ async def post_init(application):
 
 
 async def post_shutdown(application):
+    await close_air_raid_client(application)
     close_pool()
     config.log.info("Database pool closed.")
 
@@ -55,6 +57,7 @@ def main():
     app.add_handler(CommandHandler("status_summaries", cmd_status_summaries))
 
     schedule_daily(app)
+    schedule_air_raid(app)
     config.log.info("Bot started.")
 
     # Явний перелік апдейтів замість «що Telegram запам'ятав минулого разу».

@@ -34,6 +34,19 @@ REACTIONS_DIR = os.getenv(
                  "assets", "reactions"),
 )
 
+# Повітряна тривога через API alerts.in.ua. Токен видають за заявкою на
+# alerts.in.ua/api-request. Без токена чи без чатів функція вимкнена.
+ALERTS_API_TOKEN = os.getenv("ALERTS_API_TOKEN", "")
+# UID регіону в alerts.in.ua: 31 — м. Київ, 14 — Київська область.
+ALERTS_REGION_UID = int(os.getenv("ALERTS_REGION_UID", "31"))
+ALERTS_REGION_NAME = os.getenv("ALERTS_REGION_NAME", "м. Київ")
+# Ліміт сервісу — 8-10 запитів на хвилину з однієї IP. 20 секунд — це 3.
+ALERTS_POLL_SECONDS = int(os.getenv("ALERTS_POLL_SECONDS", "20"))
+_alerts_env = os.getenv("ALERTS_CHAT_IDS")
+ALERTS_CHAT_IDS = set()
+if _alerts_env:
+    ALERTS_CHAT_IDS = {int(x.strip()) for x in _alerts_env.split(",") if x.strip()}
+
 # Стеля викликів інструментів на один хід. Захист від зациклення агента.
 AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "5"))
 
@@ -165,4 +178,8 @@ log.info(f"AGENT_GEMINI_MODEL_NAME={AGENT_GEMINI_MODEL_NAME}")
 log.info(f"AGENT_MAX_STEPS={AGENT_MAX_STEPS}")
 log.info(f"AGENT_WEB_SEARCH={AGENT_WEB_SEARCH}")
 log.info(f"REACTIONS_DIR={REACTIONS_DIR}")
+log.info(f"ALERTS_API_TOKEN={'set' if ALERTS_API_TOKEN else 'not set'}")
+log.info(f"ALERTS_REGION_UID={ALERTS_REGION_UID} ({ALERTS_REGION_NAME})")
+log.info(f"ALERTS_POLL_SECONDS={ALERTS_POLL_SECONDS}")
+log.info(f"ALERTS_CHAT_IDS={ALERTS_CHAT_IDS}")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")
