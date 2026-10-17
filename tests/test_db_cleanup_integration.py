@@ -221,3 +221,35 @@ def test_air_alert_state_reports_init_same_changed(live_db):
         assert record(region, False, 5) == "changed"
     finally:
         wipe()
+
+
+def test_top_posts_counts_people_not_emojis_and_skips_self(live_db):
+    from src.tools.db import get_top_posts, set_message_reactions, upsert_chat_post
+
+    def wipe():
+        with live_db() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM chat_posts WHERE chat_id = %s", (TEST_CHAT_ID,))
+            cur.execute("DELETE FROM message_reactions WHERE chat_id = %s", (TEST_CHAT_ID,))
+            conn.commit()
+
+    AUTHOR, A, B, C = 1, 2, 3, 4
+    wipe()
+    try:
+        upsert_chat_post(TEST_CHAT_ID, 1, AUTHOR, None, "Автор", "text", "перший", 1000)
+        upsert_chat_post(TEST_CHAT_ID, 2, AUTHOR, None, "Автор", "photo", None, 1001)
+        upsert_chat_post(TEST_CHAT_ID, 3, AUTHOR, None, "Автор", "video", None, 5000)  # поза днем
+
+        set_message_reactions(TEST_CHAT_ID, 1, A, ["👍", "❤", "🔥"], 1100)  # одна людина
+        set_message_reactions(TEST_CHAT_ID, 1, AUTHOR, ["👍"], 1100)        # сам собі
+        set_message_reactions(TEST_CHAT_ID, 2, A, ["😂"], 1100)
+        set_message_reactions(TEST_CHAT_ID, 2, B, ["😂"], 1100)
+        set_message_reactions(TEST_CHAT_ID, 2, C, ["😂"], 1100)
+        set_message_reactions(TEST_CHAT_ID, 2, C, [], 1200)                 # передумав
+        set_message_reactions(TEST_CHAT_ID, 3, A, ["👍"], 5100)
+
+        top = get_top_posts(TEST_CHAT_ID, 0, 2000, 5)
+        assert [(r["message_id"], r["reactors"]) for r in top] == [(2, 2), (1, 1)]
+        assert sorted(top[1]["reactions"]) == ["❤", "👍", "🔥"]
+    finally:
+        wipe()

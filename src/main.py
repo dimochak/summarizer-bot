@@ -1,7 +1,13 @@
 from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    MessageReactionHandler,
+    filters,
+)
 
 import src.tools.config as config
 from src.alerts.air_raid import close_air_raid_client, schedule_air_raid
@@ -18,6 +24,7 @@ from src.tools.handlers import (
     cmd_status_summaries,
 )
 from src.tools.scheduler import schedule_daily
+from src.top_posts.tracking import on_reaction, register_post, warn_if_not_admin
 
 # Голосові й кружечки мають свій хендлер. Загальний їх раніше ковтав мовчки:
 # тексту немає — on_message просто виходив. Виключаємо їх явно, а не покладаємось
@@ -31,6 +38,7 @@ async def post_init(application):
     config.BOT_USER_ID = bot_info.id
     config.log.info(f"Bot initialized with ID: {config.BOT_USER_ID}")
     log_reaction_assets()
+    await warn_if_not_admin(application.bot)
 
 
 async def on_error(update, context):
@@ -66,6 +74,19 @@ def main():
 
     app.add_error_handler(on_error)
 
+    # Реєстр постів для топу за реакціями. Окрема група: хендлери різних груп
+    # спрацьовують усі, тож основні хендлери нижче отримують те саме.
+    app.add_handler(
+        MessageHandler(~filters.StatusUpdate.ALL & ~filters.COMMAND, register_post),
+        group=-1,
+    )
+    app.add_handler(
+        MessageReactionHandler(
+            on_reaction,
+            message_reaction_types=MessageReactionHandler.MESSAGE_REACTION_UPDATED,
+        )
+    )
+
     app.add_handler(MessageHandler(TEXT_FILTER, on_message))
     app.add_handler(MessageHandler(VOICE_FILTER, on_voice))
     photo_or_image_doc_filter = filters.PHOTO | filters.Document.IMAGE
@@ -89,8 +110,12 @@ def main():
     # edited_message свідомо НЕ включаємо: Update.effective_message його
     # покриває, тому редагування старого повідомлення повторно проходило
     # через on_message і бот відповідав на нього вдруге.
+    #
+    # message_reaction — для топу за реакціями. Сюди він іде лише в
+    # MessageReactionHandler: effective_message у такого апдейту немає, тож
+    # MessageHandler-и (і відповіді бота) на реакції не спрацьовують.
     app.run_polling(
-        allowed_updates=[Update.MESSAGE, Update.CHANNEL_POST],
+        allowed_updates=[Update.MESSAGE, Update.CHANNEL_POST, Update.MESSAGE_REACTION],
         close_loop=False,
     )
 
