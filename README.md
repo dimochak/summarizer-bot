@@ -22,6 +22,12 @@ rather than the whole chat. Daily limit: 10 requests per user.
 **On-demand summaries.** In chat: "підсумуй останні 100 повідомлень",
 "що було за 5 годин", "що відбулось за 30 хв".
 
+**Top posts by reactions.** The daily digest ends with the day's five most reacted-to
+posts (text, photos, videos, GIFs…) with links. A person counts once however many
+reactions they leave, and reacting to your own post doesn't count. The bot must be an
+**admin** in the chat, otherwise Telegram doesn't send it reactions; it warns about
+that in the log on startup. Only reactions made after the feature went live are counted.
+
 **Duplicate image detection.** If a picture was already posted in this chat, the bot
 points that out with a link to the original.
 
@@ -196,6 +202,7 @@ src/
   traits/              # participant profiles
   reactions/           # GIF replies to mentions of chosen subjects
   alerts/              # air raid alert GIFs
+  top_posts/           # posts and reactions for the digest's top by reactions
   tools/               # config, database, handlers, scheduler
 ```
 

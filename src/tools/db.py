@@ -66,6 +66,33 @@ CREATE TABLE IF NOT EXISTS reaction_state (
     PRIMARY KEY (chat_id, rule)
 );
 
+-- Усі повідомлення чату з типом. messages тримає лише текст, а для топу за
+-- реакціями потрібні й картинки, відео, гіфки без підпису.
+CREATE TABLE IF NOT EXISTS chat_posts (
+    chat_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    user_id BIGINT,
+    username TEXT,
+    full_name TEXT,
+    kind TEXT NOT NULL,
+    preview TEXT,
+    ts_utc BIGINT NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_posts_chat_ts ON chat_posts(chat_id, ts_utc);
+
+-- Реакції по людях. Telegram надсилає новий набір реакцій людини цілком,
+-- тож рядки людини на повідомлення щоразу замінюються.
+CREATE TABLE IF NOT EXISTS message_reactions (
+    chat_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    actor_id BIGINT NOT NULL,
+    reaction TEXT NOT NULL,
+    reacted_utc BIGINT NOT NULL,
+    PRIMARY KEY (chat_id, message_id, actor_id, reaction)
+);
+
 CREATE TABLE IF NOT EXISTS air_alert_state (
     region TEXT PRIMARY KEY,
     active BOOLEAN NOT NULL,
@@ -381,6 +408,71 @@ def record_air_alert_state(region: str, active: bool, now_ts: int) -> str:
         return "init" if row is None else "changed"
 
 
+def upsert_chat_post(
+    chat_id: int,
+    message_id: int,
+    user_id: int | None,
+    username: str | None,
+    full_name: str | None,
+    kind: str,
+    preview: str | None,
+    ts_utc: int,
+) -> None:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO chat_posts
+                   (chat_id, message_id, user_id, username, full_name, kind, preview, ts_utc)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (chat_id, message_id) DO NOTHING""",
+            (chat_id, message_id, user_id, username, full_name, kind, preview, ts_utc),
+        )
+        conn.commit()
+
+
+def set_message_reactions(
+    chat_id: int, message_id: int, actor_id: int, reactions: list[str], ts_utc: int
+) -> None:
+    """Замінює реакції людини на повідомлення. Порожній список — зняла всі."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM message_reactions WHERE chat_id=%s AND message_id=%s AND actor_id=%s",
+            (chat_id, message_id, actor_id),
+        )
+        for reaction in dict.fromkeys(reactions):
+            cur.execute(
+                """INSERT INTO message_reactions
+                       (chat_id, message_id, actor_id, reaction, reacted_utc)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (chat_id, message_id, actor_id, reaction, ts_utc),
+            )
+        conn.commit()
+
+
+def get_top_posts(chat_id: int, start_ts_utc: int, end_ts_utc: int, limit: int) -> list[dict]:
+    """Пости за проміжок, відсортовані за кількістю людей, що відреагували.
+
+    Людина рахується один раз, навіть якщо поставила кілька реакцій.
+    Реакція автора на власний пост не рахується.
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT p.message_id, p.user_id, p.username, p.full_name, p.kind, p.preview,
+                      COUNT(DISTINCT r.actor_id) AS reactors,
+                      array_agg(r.reaction) AS reactions
+               FROM chat_posts p
+               JOIN message_reactions r
+                 ON r.chat_id = p.chat_id AND r.message_id = p.message_id
+               WHERE p.chat_id = %s AND p.ts_utc >= %s AND p.ts_utc < %s
+                 AND r.actor_id IS DISTINCT FROM p.user_id
+               GROUP BY p.message_id, p.user_id, p.username, p.full_name,
+                        p.kind, p.preview, p.ts_utc
+               ORDER BY reactors DESC, COUNT(*) DESC, p.ts_utc ASC
+               LIMIT %s""",
+            (chat_id, start_ts_utc, end_ts_utc, limit),
+        )
+        return cur.fetchall()
+
+
 def get_enabled_chat_ids() -> list[int]:
     with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT chat_id FROM chats WHERE enabled=1")
@@ -647,6 +739,9 @@ def cleanup_old_data(days: int):
 
         cur.execute("DELETE FROM voice_limits WHERE date < %s", (cutoff_date,))
         deleted_limits += cur.rowcount
+
+        cur.execute("DELETE FROM chat_posts WHERE ts_utc < %s", (cutoff_ts,))
+        cur.execute("DELETE FROM message_reactions WHERE reacted_utc < %s", (cutoff_ts,))
 
         conn.commit()
 

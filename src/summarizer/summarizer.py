@@ -12,8 +12,11 @@ import src.tools.config as config
 from src.core.llm import get_structured_llm, resolve_provider
 from src.tools.db import db_call, get_messages_between
 from src.tools.utils import utc_ts, clean_text, message_link, user_link
+from src.top_posts.digest import top_posts_block
 
 MAX_TOPICS_NUM = 7
+# Ліміт Telegram на одне повідомлення.
+TELEGRAM_MESSAGE_LIMIT = 4096
 
 
 class Topic(BaseModel):
@@ -340,4 +343,22 @@ async def summarize_day(
             line += f"\nКоротко: {escape(summ)}"
         items.append(line)
 
-    return header + "\n\n" + "\n\n".join(items)
+    summary = header + "\n\n" + "\n\n".join(items)
+    return await _with_top_posts(chat, summary, utc_ts(start_utc), utc_ts(end_utc))
+
+
+async def _with_top_posts(chat: Chat, summary: str, start_ts: int, end_ts: int) -> str:
+    """Додає до підсумку топ постів за реакціями. Без нього підсумок теж цінний,
+    тож збій чи переповнення лише прибирає блок."""
+    try:
+        block = await top_posts_block(chat, start_ts, end_ts)
+    except Exception as e:
+        config.log.exception(f"Top posts failed for chat {chat.id}: {e}")
+        return summary
+    if not block:
+        return summary
+    combined = f"{summary}\n\n{block}"
+    if len(combined) > TELEGRAM_MESSAGE_LIMIT:
+        config.log.warning(f"Top posts: дайджест чату {chat.id} задовгий, топ пропущено")
+        return summary
+    return combined
