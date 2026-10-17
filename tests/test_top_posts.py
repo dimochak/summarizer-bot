@@ -129,34 +129,24 @@ async def test_unknown_chat_ignored(saved):
 CHAT = Chat(CHAT_ID, Chat.SUPERGROUP)
 
 
-def row(message_id, reactors, kind="text", preview="текст", name="Петро", reactions=("👍",)):
-    return {"message_id": message_id, "user_id": 1, "username": None, "full_name": name,
-            "kind": kind, "preview": preview, "reactors": reactors, "reactions": list(reactions)}
+def row(message_id, reactors, name="Петро", username=None):
+    return {"message_id": message_id, "user_id": 1, "username": username,
+            "full_name": name, "reactors": reactors}
 
 
-def test_block_has_links_counts_and_labels():
-    block = digest.format_top_posts(CHAT, [
-        row(10, 7, reactions=["❤", "❤", "😂", "👍", "🔥"]),
-        row(11, 3, kind="photo", preview=None),
-        row(12, 2, kind="video", preview="дивіться"),
-    ])
-    lines = block.split("\n")
-    assert lines[0] == "<b>🔥 Топ-3 за реакціями</b>"
-    assert lines[1] == '1. <a href="https://t.me/c/1856168782/10">текст</a> — Петро · 7 ❤😂👍'
-    assert '<a href="https://t.me/c/1856168782/11">📷 фото</a>' in lines[2]
-    assert "🎬 відео: дивіться" in lines[3]
+def test_block_has_author_count_and_link():
+    block = digest.format_top_posts(CHAT, [row(10, 7), row(11, 3, name="Оля")])
+    assert block.split("\n") == [
+        "<b>🔥 Топ-2 за реакціями</b>",
+        '1. Петро — 👍 7 — <a href="https://t.me/c/1856168782/10">посилання</a>',
+        '2. Оля — 👍 3 — <a href="https://t.me/c/1856168782/11">посилання</a>',
+    ]
 
 
-def test_block_escapes_user_text():
-    block = digest.format_top_posts(CHAT, [row(1, 1, preview="<b>ой</b>", name="<script>")])
-    assert "<b>ой</b>" not in block and "&lt;b&gt;ой&lt;/b&gt;" in block
-    assert "&lt;script&gt;" in block
-
-
-def test_long_preview_truncated_and_custom_emoji_shown():
-    block = digest.format_top_posts(CHAT, [row(1, 1, preview="слово " * 30,
-                                                reactions=["custom:9", "paid"])])
-    assert "…" in block and "✨⭐" in block
+def test_author_name_escaped_and_falls_back_to_username():
+    assert "&lt;script&gt;" in digest.format_top_posts(CHAT, [row(1, 1, name="<script>")])
+    assert "@petro" in digest.format_top_posts(CHAT, [row(1, 1, name=None, username="petro")])
+    assert "Анонім" in digest.format_top_posts(CHAT, [row(1, 1, name=None)])
 
 
 def test_no_reactions_no_block():

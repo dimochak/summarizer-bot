@@ -456,16 +456,14 @@ def get_top_posts(chat_id: int, start_ts_utc: int, end_ts_utc: int, limit: int) 
     """
     with db() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT p.message_id, p.user_id, p.username, p.full_name, p.kind, p.preview,
-                      COUNT(DISTINCT r.actor_id) AS reactors,
-                      array_agg(r.reaction) AS reactions
+            """SELECT p.message_id, p.user_id, p.username, p.full_name,
+                      COUNT(DISTINCT r.actor_id) AS reactors
                FROM chat_posts p
                JOIN message_reactions r
                  ON r.chat_id = p.chat_id AND r.message_id = p.message_id
                WHERE p.chat_id = %s AND p.ts_utc >= %s AND p.ts_utc < %s
                  AND r.actor_id IS DISTINCT FROM p.user_id
-               GROUP BY p.message_id, p.user_id, p.username, p.full_name,
-                        p.kind, p.preview, p.ts_utc
+               GROUP BY p.message_id, p.user_id, p.username, p.full_name, p.ts_utc
                ORDER BY reactors DESC, COUNT(*) DESC, p.ts_utc ASC
                LIMIT %s""",
             (chat_id, start_ts_utc, end_ts_utc, limit),
