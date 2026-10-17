@@ -14,7 +14,7 @@ def format_top_posts(chat, rows) -> str:
     for i, row in enumerate(rows, 1):
         link = message_link(chat, row["message_id"])
         author = row.get("full_name") or (row.get("username") and f"@{row['username']}") or "Анонім"
-        lines.append(f'{i}. {escape(author)} — 👍 {row["reactors"]} — <a href="{link}">посилання</a>')
+        lines.append(f'{i}. <a href="{link}">посилання</a> — 👍 {row["reactors"]} — {escape(author)}')
     return "\n".join(lines)
 
 

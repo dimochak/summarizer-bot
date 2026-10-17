@@ -138,8 +138,8 @@ def test_block_has_author_count_and_link():
     block = digest.format_top_posts(CHAT, [row(10, 7), row(11, 3, name="Оля")])
     assert block.split("\n") == [
         "<b>🔥 Топ-2 за реакціями</b>",
-        '1. Петро — 👍 7 — <a href="https://t.me/c/1856168782/10">посилання</a>',
-        '2. Оля — 👍 3 — <a href="https://t.me/c/1856168782/11">посилання</a>',
+        '1. <a href="https://t.me/c/1856168782/10">посилання</a> — 👍 7 — Петро',
+        '2. <a href="https://t.me/c/1856168782/11">посилання</a> — 👍 3 — Оля',
     ]
 
 
