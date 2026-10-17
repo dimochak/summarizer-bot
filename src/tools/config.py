@@ -25,6 +25,15 @@ TRAITS_MODEL_NAME = os.getenv("TRAITS_LLM_MODEL", "gpt-5")
 AGENT_OPENAI_MODEL_NAME = os.getenv("AGENT_OPENAI_MODEL_NAME", "")
 AGENT_GEMINI_MODEL_NAME = os.getenv("AGENT_GEMINI_MODEL_NAME", "")
 
+# Голосові й кружечки розбирає Gemini незалежно від провайдера чату: він бере
+# OGG і MP4 як є і, на відміну від Whisper, чує не лише мову, а й хропіння.
+# Порожнє значення — основна модель Gemini.
+VOICE_GEMINI_MODEL_NAME = os.getenv("VOICE_GEMINI_MODEL_NAME", "")
+# Довші голосові не розшифровуємо: це вже подкаст, а не репліка.
+VOICE_MAX_SECONDS = int(os.getenv("VOICE_MAX_SECONDS", "300"))
+# Скільки голосових на людину на добу бот розшифровує в кожному чаті.
+VOICE_DAILY_LIMIT = int(os.getenv("VOICE_DAILY_LIMIT", "5"))
+
 # Звідки брати картинки для реакцій. Самі картинки в репозиторій не
 # потрапляють (.gitignore): локально вони лежать у assets/reactions/, а в
 # проді — на томі Fly, змонтованому в /app/data (див. fly.toml).
@@ -77,6 +86,15 @@ _agent_env = os.getenv("AGENT_CHAT_IDS")
 AGENT_CHAT_IDS = set()
 if _agent_env:
     AGENT_CHAT_IDS = {int(x.strip()) for x in _agent_env.split(",") if x.strip()}
+
+# Чати, де бот розшифровує голосові й кружечки. Порожньо — вимкнено: спершу
+# вмикаємо на тестовому чаті й перевіряємо розпізнавання на справжніх записах,
+# потім на решті. VOICE_DAILY_LIMIT=0 вимикачем не є: тоді бот на перше голосове
+# людини за день відповідає попередженням про ліміт.
+_voice_env = os.getenv("VOICE_CHAT_IDS")
+VOICE_CHAT_IDS = set()
+if _voice_env:
+    VOICE_CHAT_IDS = {int(x.strip()) for x in _voice_env.split(",") if x.strip()}
 
 
 # Чати, налаштовані на AI-підсумки (мають конкретного провайдера).
@@ -166,3 +184,7 @@ log.info(f"AGENT_MAX_STEPS={AGENT_MAX_STEPS}")
 log.info(f"AGENT_WEB_SEARCH={AGENT_WEB_SEARCH}")
 log.info(f"REACTIONS_DIR={REACTIONS_DIR}")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")
+log.info(f"VOICE_CHAT_IDS={VOICE_CHAT_IDS}")
+log.info(f"VOICE_GEMINI_MODEL_NAME={VOICE_GEMINI_MODEL_NAME}")
+log.info(f"VOICE_MAX_SECONDS={VOICE_MAX_SECONDS}")
+log.info(f"VOICE_DAILY_LIMIT={VOICE_DAILY_LIMIT}")

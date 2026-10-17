@@ -25,6 +25,15 @@ rather than the whole chat. Daily limit: 10 requests per user.
 **Duplicate image detection.** If a picture was already posted in this chat, the bot
 points that out with a link to the original.
 
+**Voice messages and video notes.** In chats listed in `VOICE_CHAT_IDS` (none by
+default), the bot transcribes voice messages and round video notes with Gemini and
+replies with a toxic remark plus the transcript ("Невже так складно писати буквами?").
+A snoring-only recording gets a "прокидайся" instead, and forwarding someone else's
+voice message earns its own jab. Limits: 5 transcriptions per person per day and
+5 minutes per message. The transcript is stored as the message text, so voice messages
+show up in daily summaries and in PanBot's context. Reply phrases live in
+`src/voice/templates/*.j2`, so adding one is a one-file edit.
+
 **Participant profiles (traits).** Tone, topics, verbosity and language preferences
 feed into the bot's replies. Refreshed automatically every 30 days.
 
@@ -94,6 +103,12 @@ GEMINI_MODEL_NAME=gemini-2.5-flash
 REPLY_DECISION_OPENAI_MODEL_NAME=
 REPLY_DECISION_GEMINI_MODEL_NAME=
 TRAITS_LLM_MODEL=gpt-5
+
+# Voice messages and video notes (always Gemini, whatever the chat's provider)
+VOICE_CHAT_IDS=             # where to transcribe; empty — feature off
+VOICE_GEMINI_MODEL_NAME=    # empty — use GEMINI_MODEL_NAME
+VOICE_MAX_SECONDS=300       # longer ones are not transcribed
+VOICE_DAILY_LIMIT=5         # transcriptions per person per chat per day
 
 # Database
 DB_RETENTION_DAYS=30        # old data is purged daily at 04:00

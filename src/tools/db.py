@@ -65,6 +65,16 @@ CREATE TABLE IF NOT EXISTS reaction_state (
     last_fired_utc BIGINT NOT NULL,
     PRIMARY KEY (chat_id, rule)
 );
+
+CREATE TABLE IF NOT EXISTS voice_limits (
+    user_id BIGINT NOT NULL,
+    chat_id BIGINT NOT NULL,
+    date TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, chat_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_limits_date ON voice_limits(date);
 """
 
 
@@ -362,6 +372,37 @@ def increment_panbot_usage(user_id: int, chat_id: int, date: str) -> int:
         return new_count
 
 
+def claim_voice_slot(user_id: int, chat_id: int, date: str) -> int:
+    """Атомарно займає слот на розшифровку й повертає новий лічильник.
+
+    Лічильник росте й понад ліміт: так видно, яке саме голосове перше
+    вилізло за межу, і попередження про ліміт шлеться лише раз.
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO voice_limits (user_id, chat_id, date, count)
+               VALUES (%s, %s, %s, 1)
+               ON CONFLICT (user_id, chat_id, date)
+               DO UPDATE SET count = voice_limits.count + 1
+               RETURNING count""",
+            (user_id, chat_id, date),
+        )
+        new_count = cur.fetchone()["count"]
+        conn.commit()
+        return new_count
+
+
+def release_voice_slot(user_id: int, chat_id: int, date: str) -> None:
+    """Повертає слот, якщо розшифровка не вдалась: технічний збій квоту не зʼїдає."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE voice_limits SET count = count - 1
+               WHERE user_id=%s AND chat_id=%s AND date=%s AND count > 0""",
+            (user_id, chat_id, date),
+        )
+        conn.commit()
+
+
 def is_bot_message(chat_id: int, message_id: int) -> bool:
     with db() as conn, conn.cursor() as cur:
         cur.execute(
@@ -563,6 +604,9 @@ def cleanup_old_data(days: int):
         # Cleanup panbot limits
         cur.execute("DELETE FROM panbot_limits WHERE date < %s", (cutoff_date,))
         deleted_limits = cur.rowcount
+
+        cur.execute("DELETE FROM voice_limits WHERE date < %s", (cutoff_date,))
+        deleted_limits += cur.rowcount
 
         conn.commit()
 
