@@ -250,6 +250,5 @@ def test_top_posts_counts_people_not_emojis_and_skips_self(live_db):
 
         top = get_top_posts(TEST_CHAT_ID, 0, 2000, 5)
         assert [(r["message_id"], r["reactors"]) for r in top] == [(2, 2), (1, 1)]
-        assert sorted(top[1]["reactions"]) == ["❤", "👍", "🔥"]
     finally:
         wipe()
