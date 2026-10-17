@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlsplit, urlunsplit
 from loguru import logger
 import logging
 from zoneinfo import ZoneInfo
@@ -42,6 +43,29 @@ REACTIONS_DIR = os.getenv(
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                  "assets", "reactions"),
 )
+
+# Повітряна тривога. Джерела:
+#   jaam         — jaam.net.ua, токен не потрібен. Сам опитує офіційний
+#                  ukrainealarm.com кожні 3 с. Ліміти не задокументовані,
+#                  перед сервером Cloudflare, тож опитуємо не частіше 10 с.
+#   alerts_in_ua — alerts.in.ua, токен за заявкою на alerts.in.ua/api-request.
+#                  Ліміт: мʼякий 8-10 запитів на хвилину, жорсткий 12.
+ALERTS_SOURCE = os.getenv("ALERTS_SOURCE", "jaam").strip().lower()
+ALERTS_API_TOKEN = os.getenv("ALERTS_API_TOKEN", "")
+# Ключ області в JAAM — її назва: «Київ» (місто), «Київська область».
+ALERTS_JAAM_REGION = os.getenv("ALERTS_JAAM_REGION", "Київ")
+# UID регіону в alerts.in.ua: 31 — м. Київ, 14 — Київська область.
+ALERTS_REGION_UID = int(os.getenv("ALERTS_REGION_UID", "31"))
+ALERTS_REGION_NAME = os.getenv("ALERTS_REGION_NAME", "м. Київ")
+# Частіше за ці межі не опитуємо: систематичне перевищення — бан IP.
+_ALERTS_MIN_POLL = {"jaam": 10, "alerts_in_ua": 8}.get(ALERTS_SOURCE, 10)
+ALERTS_POLL_SECONDS = max(
+    _ALERTS_MIN_POLL, int(os.getenv("ALERTS_POLL_SECONDS", str(_ALERTS_MIN_POLL)))
+)
+_alerts_env = os.getenv("ALERTS_CHAT_IDS")
+ALERTS_CHAT_IDS = set()
+if _alerts_env:
+    ALERTS_CHAT_IDS = {int(x.strip()) for x in _alerts_env.split(",") if x.strip()}
 
 # Стеля викликів інструментів на один хід. Захист від зациклення агента.
 AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "5"))
@@ -127,7 +151,10 @@ logger.add(
         "<cyan>{name}:{function}:{line}</cyan>: "
         "<level>{message}</level>"
     ),
-    enqueue=True
+    enqueue=True,
+    # diagnose друкує значення змінних у трейсбеку, а серед них Application,
+    # чий repr містить токен бота. Так токен і потрапив у логи Fly.
+    diagnose=False,
 )
 
 # Also duplicate logs to stderr/console, not only file
@@ -140,7 +167,10 @@ logger.add(
         "<cyan>{name}:{function}:{line}</cyan>: "
         "<level>{message}</level>"
     ),
-    enqueue=True
+    enqueue=True,
+    # diagnose друкує значення змінних у трейсбеку, а серед них Application,
+    # чий repr містить токен бота. Так токен і потрапив у логи Fly.
+    diagnose=False,
 )
 
 class InterceptHandler(logging.Handler):
@@ -165,13 +195,28 @@ httpx_logger = logging.getLogger("httpx")
 httpx_logger.addFilter(InfoFilter())
 
 log = logger
+
+
+def _mask_password(url: str | None) -> str | None:
+    """postgres://user:secret@host/db -> postgres://user:***@host/db.
+
+    Без маски пароль від бази потрапляв у логи Fly на кожному старті.
+    """
+    if not url:
+        return url
+    parts = urlsplit(url)
+    if not parts.password:
+        return url
+    netloc = parts.netloc.replace(f":{parts.password}@", ":***@", 1)
+    return urlunsplit(parts._replace(netloc=netloc))
+
 log.info("Configuration loaded.")
 log.info(f"TZ={TZ}")
 log.info(f"GEMINI_CHAT_IDS={GEMINI_CHAT_IDS}")
 log.info(f"OPENAI_CHAT_IDS={OPENAI_CHAT_IDS}")
 log.info(f"ALLOWED_CHAT_IDS={ALLOWED_CHAT_IDS}")
 log.info(f"KNOWN_CHAT_IDS={KNOWN_CHAT_IDS}")
-log.info(f"DATABASE_URL={DATABASE_URL}")
+log.info(f"DATABASE_URL={_mask_password(DATABASE_URL)}")
 log.info(f"GEMINI_MODEL_NAME={GEMINI_MODEL_NAME}")
 log.info(f"OPENAI_MODEL_NAME={OPENAI_MODEL_NAME}")
 log.info(f"REPLY_DECISION_GEMINI_MODEL_NAME={REPLY_DECISION_GEMINI_MODEL_NAME}")
@@ -183,6 +228,12 @@ log.info(f"AGENT_GEMINI_MODEL_NAME={AGENT_GEMINI_MODEL_NAME}")
 log.info(f"AGENT_MAX_STEPS={AGENT_MAX_STEPS}")
 log.info(f"AGENT_WEB_SEARCH={AGENT_WEB_SEARCH}")
 log.info(f"REACTIONS_DIR={REACTIONS_DIR}")
+log.info(f"ALERTS_SOURCE={ALERTS_SOURCE}")
+log.info(f"ALERTS_API_TOKEN={'set' if ALERTS_API_TOKEN else 'not set'}")
+log.info(f"ALERTS_JAAM_REGION={ALERTS_JAAM_REGION}")
+log.info(f"ALERTS_REGION_UID={ALERTS_REGION_UID} ({ALERTS_REGION_NAME})")
+log.info(f"ALERTS_POLL_SECONDS={ALERTS_POLL_SECONDS}")
+log.info(f"ALERTS_CHAT_IDS={ALERTS_CHAT_IDS}")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")
 log.info(f"VOICE_CHAT_IDS={VOICE_CHAT_IDS}")
 log.info(f"VOICE_GEMINI_MODEL_NAME={VOICE_GEMINI_MODEL_NAME}")

@@ -1,7 +1,10 @@
+from psycopg import OperationalError
+from psycopg_pool import PoolTimeout
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters
 
 import src.tools.config as config
+from src.alerts.air_raid import close_air_raid_client, schedule_air_raid
 from src.reactions.react import log_reaction_assets
 from src.tools.db import close_pool, init_db
 from src.tools.handlers import (
@@ -30,7 +33,22 @@ async def post_init(application):
     log_reaction_assets()
 
 
+async def on_error(update, context):
+    """Один рядок замість «No error handlers are registered» і стіни трейсбеку.
+
+    Збій БД чи мережі валить кожне повідомлення, тож повний трейсбек на кожне
+    лише ховає суть. Трейсбек лишаємо тільки для неочікуваних помилок.
+    """
+    error = context.error
+    chat = getattr(getattr(update, "effective_chat", None), "id", None)
+    if isinstance(error, (PoolTimeout, OperationalError)):
+        config.log.error(f"DB unavailable (chat {chat}): {error}")
+        return
+    config.log.opt(exception=error).error(f"Unhandled error (chat {chat}): {error!r}")
+
+
 async def post_shutdown(application):
+    await close_air_raid_client(application)
     close_pool()
     config.log.info("Database pool closed.")
 
@@ -46,6 +64,8 @@ def main():
         .build()
     )
 
+    app.add_error_handler(on_error)
+
     app.add_handler(MessageHandler(TEXT_FILTER, on_message))
     app.add_handler(MessageHandler(VOICE_FILTER, on_voice))
     photo_or_image_doc_filter = filters.PHOTO | filters.Document.IMAGE
@@ -59,6 +79,7 @@ def main():
     app.add_handler(CommandHandler("status_summaries", cmd_status_summaries))
 
     schedule_daily(app)
+    schedule_air_raid(app)
     config.log.info("Bot started.")
 
     # Явний перелік апдейтів замість «що Telegram запам'ятав минулого разу».

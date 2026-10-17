@@ -66,6 +66,12 @@ CREATE TABLE IF NOT EXISTS reaction_state (
     PRIMARY KEY (chat_id, rule)
 );
 
+CREATE TABLE IF NOT EXISTS air_alert_state (
+    region TEXT PRIMARY KEY,
+    active BOOLEAN NOT NULL,
+    changed_utc BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS voice_limits (
     user_id BIGINT NOT NULL,
     chat_id BIGINT NOT NULL,
@@ -91,6 +97,10 @@ def get_pool() -> ConnectionPool:
             min_size=1,
             max_size=int(os.getenv("DB_POOL_MAX_SIZE", "10")),
             kwargs={"row_factory": dict_row},
+            # Скільки чекати вільного зʼєднання. Дефолт psycopg — 30 с, а PTB
+            # обробляє апдейти по одному: коли база лежить, кожне повідомлення
+            # тримало чергу пів хвилини, і бот відставав на години.
+            timeout=float(os.getenv("DB_POOL_TIMEOUT", "5")),
             open=True,
         )
     return _pool
@@ -339,6 +349,36 @@ def claim_reaction(chat_id: int, rule: str, now_ts: int, cooldown_s: int) -> boo
         claimed = cur.fetchone() is not None
         conn.commit()
         return claimed
+
+
+def record_air_alert_state(region: str, active: bool, now_ts: int) -> str:
+    """Зберігає стан тривоги й каже, що сталося.
+
+    "init"    — стану ще не було: записали, але це не перехід, постити не треба;
+    "same"    — нічого не змінилось;
+    "changed" — тривога почалась або скінчилась.
+
+    Стан у БД, а не в памʼяті, щоб деплой посеред тривоги не загубив відбій.
+    region — «джерело:регіон», тож зміна джерела починає з чистого «init».
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT active FROM air_alert_state WHERE region=%s FOR UPDATE",
+            (region,),
+        )
+        row = cur.fetchone()
+        if row is not None and row["active"] == active:
+            conn.commit()
+            return "same"
+        cur.execute(
+            """INSERT INTO air_alert_state (region, active, changed_utc)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (region) DO UPDATE
+                 SET active = EXCLUDED.active, changed_utc = EXCLUDED.changed_utc""",
+            (region, active, now_ts),
+        )
+        conn.commit()
+        return "init" if row is None else "changed"
 
 
 def get_enabled_chat_ids() -> list[int]:

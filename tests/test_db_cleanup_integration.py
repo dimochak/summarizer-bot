@@ -200,3 +200,24 @@ def test_reaction_claim_is_atomic_and_respects_cooldown(live_db):
         with live_db() as conn:
             conn.cursor().execute("DELETE FROM reaction_state WHERE chat_id = %s", (TEST_CHAT_ID,))
             conn.commit()
+
+
+def test_air_alert_state_reports_init_same_changed(live_db):
+    from src.tools.db import record_air_alert_state as record
+
+    region = "test:integration"
+
+    def wipe():
+        with live_db() as conn:
+            conn.cursor().execute("DELETE FROM air_alert_state WHERE region = %s", (region,))
+            conn.commit()
+
+    wipe()
+    try:
+        assert record(region, False, 1) == "init"
+        assert record(region, False, 2) == "same"
+        assert record(region, True, 3) == "changed"
+        assert record(region, True, 4) == "same"
+        assert record(region, False, 5) == "changed"
+    finally:
+        wipe()

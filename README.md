@@ -25,6 +25,12 @@ rather than the whole chat. Daily limit: 10 requests per user.
 **Duplicate image detection.** If a picture was already posted in this chat, the bot
 points that out with a link to the original.
 
+**Air raid alerts.** The bot posts a GIF when an air raid alert starts in the configured
+region and another one when it ends. Data comes from [JAAM](https://jaam.net.ua/api)
+(no token needed; it mirrors the official ukrainealarm.com feed) or from alerts.in.ua.
+GIFs live outside the repo, see `assets/reactions/README.md`. This is chat fun, not a
+warning system: use the official alert app for that.
+
 **Voice messages and video notes.** In chats listed in `VOICE_CHAT_IDS` (none by
 default), the bot transcribes voice messages and round video notes with Gemini and
 replies with a toxic remark plus the transcript ("Невже так складно писати буквами?").
@@ -104,6 +110,15 @@ REPLY_DECISION_OPENAI_MODEL_NAME=
 REPLY_DECISION_GEMINI_MODEL_NAME=
 TRAITS_LLM_MODEL=gpt-5
 
+# Air raid alerts (off until ALERTS_CHAT_IDS is set)
+ALERTS_CHAT_IDS=            # comma-separated chat IDs
+ALERTS_SOURCE=jaam          # jaam | alerts_in_ua
+ALERTS_JAAM_REGION=Київ     # region key in JAAM: "Київ" (city), "Київська область"
+ALERTS_API_TOKEN=           # alerts_in_ua only
+ALERTS_REGION_UID=31        # alerts_in_ua only: 31 = Kyiv city, 14 = Kyiv oblast
+ALERTS_REGION_NAME=м. Київ  # shown in the message
+ALERTS_POLL_SECONDS=        # default and minimum: 10 for jaam, 8 for alerts_in_ua
+
 # Voice messages and video notes (always Gemini, whatever the chat's provider)
 VOICE_CHAT_IDS=             # where to transcribe; empty — feature off
 VOICE_GEMINI_MODEL_NAME=    # empty — use GEMINI_MODEL_NAME
@@ -179,6 +194,8 @@ src/
     formatting.py      # coerces LLM output into HTML that Telegram accepts
   summarizer/          # daily summaries
   traits/              # participant profiles
+  reactions/           # GIF replies to mentions of chosen subjects
+  alerts/              # air raid alert GIFs
   tools/               # config, database, handlers, scheduler
 ```
 
