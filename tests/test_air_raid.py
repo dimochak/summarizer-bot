@@ -17,28 +17,37 @@ CHAT = -100500
 @pytest.fixture(autouse=True)
 def setup(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "ALERTS_SOURCE", "jaam")
-    monkeypatch.setattr(config, "ALERTS_JAAM_REGION", "Київ")
+    monkeypatch.setattr(config, "ALERTS_JAAM_REGION", "м. Київ")
     monkeypatch.setattr(config, "ALERTS_API_TOKEN", "test-alerts-token")
     monkeypatch.setattr(config, "ALERTS_REGION_UID", 31)
     monkeypatch.setattr(config, "ALERTS_REGION_NAME", "м. Київ")
     monkeypatch.setattr(config, "ALERTS_CHAT_IDS", {CHAT})
     monkeypatch.setattr(config, "REACTIONS_DIR", str(tmp_path))
-    monkeypatch.setattr(
-        air_raid, "_cache", {"last_modified": None, "status": None, "backoff_until": 0.0}
-    )
+    monkeypatch.setattr(air_raid, "_cache", {
+        "last_modified": None, "status": None, "backoff_until": 0.0,
+        "jaam_missing_logged": False,
+    })
     monkeypatch.setattr(air_raid, "_file_ids", {})
 
 
-def jaam(alertnow, district=False, changes=None, region="Київ"):
-    """Відповідь JAAM v2 у тому вигляді, який сервер віддає насправді."""
-    return httpx.Response(200, json={
-        "version": 2,
-        "states": {
-            region: {"alertnow": alertnow, "district": district, "changes": changes},
-            "Київська область": {"alertnow": True, "district": True,
-                                 "changes": "2026-10-16T16:13:38Z"},
-        },
-    })
+# Решта регіонів, як у справжній відповіді JAAM: 28 областей і громад.
+OTHER_REGIONS = [f"Область {i}" for i in range(26)] + ["Київ", "Київська область"]
+
+
+def jaam(alertnow=None, district=False, changes=None, region="м. Київ"):
+    """Відповідь JAAM v2 у тому вигляді, який сервер віддає насправді.
+
+    alertnow=None — ключа регіону у відповіді немає: так JAAM показує
+    «м. Київ», коли в місті тривоги немає.
+    """
+    states = {name: {"alertnow": False, "district": False, "changes": None}
+              for name in OTHER_REGIONS}
+    # Порожній ключ «Київ» поруч зі справжнім «м. Київ» — як на проді.
+    states["Київська область"] = {"alertnow": True, "district": True,
+                                  "changes": "2026-10-16T16:13:38Z"}
+    if alertnow is not None:
+        states[region] = {"alertnow": alertnow, "district": district, "changes": changes}
+    return httpx.Response(200, json={"version": 2, "states": states})
 
 
 def client_returning(*responses):
@@ -121,18 +130,47 @@ async def test_jaam_city_and_oblast_are_different_keys():
     assert status.active is False
 
 
-async def test_jaam_unknown_region_is_unknown_not_all_clear(monkeypatch):
-    monkeypatch.setattr(config, "ALERTS_JAAM_REGION", "Киев")
-    assert await air_raid.fetch_status(client_returning(jaam(True))) is None
+async def test_missing_city_key_means_no_alert():
+    """«м. Київ» є у відповіді лише під час тривоги."""
+    status = await air_raid.fetch_status(client_returning(jaam()))
+    assert status.active is False
+
+
+async def test_missing_key_is_logged_once_with_available_keys(monkeypatch):
+    lines = []
+    fake_log = type("Log", (), {"info": staticmethod(lines.append),
+                                "warning": staticmethod(lines.append)})
+    monkeypatch.setattr(config, "log", fake_log)
+
+    client = client_returning(jaam(), jaam(), jaam(True), jaam())
+    for _ in range(4):
+        await air_raid.fetch_status(client)
+
+    missing = [line for line in lines if "зараз немає" in line]
+    assert len(missing) == 2, "раз на кожне зникнення ключа, а не на кожне опитування"
+    assert "Київська область" in missing[0], "у повідомленні — список наявних ключів"
+
+
+async def test_truncated_payload_is_unknown_not_all_clear():
+    response = httpx.Response(200, json={"version": 2, "states": {"Київська область": {
+        "alertnow": True, "district": True, "changes": None}}})
+    assert await air_raid.fetch_status(client_returning(response)) is None
 
 
 @pytest.mark.parametrize(
     "body",
-    [{"version": 2}, {"states": []}, {"states": {"Київ": {"alertnow": "yes"}}}, ["Київ"]],
+    [{"version": 2}, {"states": []}, ["м. Київ"]],
 )
 async def test_jaam_malformed_payload_is_unknown(body):
     response = httpx.Response(200, json=body)
     assert await air_raid.fetch_status(client_returning(response)) is None
+
+
+async def test_jaam_malformed_entry_is_unknown():
+    response = jaam(True)
+    body = response.json()
+    body["states"]["м. Київ"] = {"alertnow": "yes"}
+    assert await air_raid.fetch_status(client_returning(httpx.Response(200, json=body))) is None
 
 
 async def test_rate_limit_pauses_polling():
@@ -205,7 +243,7 @@ async def test_first_poll_only_records_state(state):
     bot = FakeBot()
     await run(bot, jaam(True))
     assert bot.sent == []
-    assert state == {"jaam:Київ": True}
+    assert state == {"jaam:м. Київ": True}
 
 
 async def test_alert_and_all_clear_posted_once_each(state):
@@ -223,6 +261,16 @@ async def test_partial_counts_as_alert(state, alerts_in_ua):
     assert len(bot.sent) == 1 and "тривога" in bot.sent[0][2]
 
 
+async def test_city_key_appears_and_disappears(state):
+    """Як на проді: ключа немає -> зʼявився з тривогою -> зник після відбою."""
+    bot = FakeBot()
+    await run(bot, jaam(), jaam(True, changes="2026-10-17T19:23:37Z"), jaam(True), jaam(), jaam())
+    assert [caption for _, _, caption in bot.sent] == [
+        "🚨 Повітряна тривога — м. Київ",
+        "✅ Відбій тривоги — м. Київ",
+    ]
+
+
 async def test_jaam_partial_counts_as_alert(state):
     bot = FakeBot()
     await run(bot, jaam(False), jaam(True, district=True))
@@ -232,7 +280,7 @@ async def test_jaam_partial_counts_as_alert(state):
 async def test_state_key_includes_source(state):
     """Зміна джерела починає з «init», а не з хибного переходу."""
     await run(FakeBot(), jaam(True))
-    assert state == {"jaam:Київ": True}
+    assert state == {"jaam:м. Київ": True}
 
 
 async def test_lag_from_source_is_logged(state, monkeypatch):
