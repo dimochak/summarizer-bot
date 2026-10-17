@@ -43,3 +43,11 @@ async def test_unexpected_error_keeps_traceback(monkeypatch):
 
     assert log.with_traceback == [error]
     assert "chat None" in log.lines[0]
+
+
+def test_database_url_password_is_masked_in_logs():
+    mask = config._mask_password
+    assert mask("postgres://bot:s3cr3t@db.flycast:5432/app?sslmode=disable") == \
+        "postgres://bot:***@db.flycast:5432/app?sslmode=disable"
+    assert mask("postgresql://localhost/test") == "postgresql://localhost/test"
+    assert mask(None) is None

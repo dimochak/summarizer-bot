@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlsplit, urlunsplit
 from loguru import logger
 import logging
 from zoneinfo import ZoneInfo
@@ -176,13 +177,28 @@ httpx_logger = logging.getLogger("httpx")
 httpx_logger.addFilter(InfoFilter())
 
 log = logger
+
+
+def _mask_password(url: str | None) -> str | None:
+    """postgres://user:secret@host/db -> postgres://user:***@host/db.
+
+    Без маски пароль від бази потрапляв у логи Fly на кожному старті.
+    """
+    if not url:
+        return url
+    parts = urlsplit(url)
+    if not parts.password:
+        return url
+    netloc = parts.netloc.replace(f":{parts.password}@", ":***@", 1)
+    return urlunsplit(parts._replace(netloc=netloc))
+
 log.info("Configuration loaded.")
 log.info(f"TZ={TZ}")
 log.info(f"GEMINI_CHAT_IDS={GEMINI_CHAT_IDS}")
 log.info(f"OPENAI_CHAT_IDS={OPENAI_CHAT_IDS}")
 log.info(f"ALLOWED_CHAT_IDS={ALLOWED_CHAT_IDS}")
 log.info(f"KNOWN_CHAT_IDS={KNOWN_CHAT_IDS}")
-log.info(f"DATABASE_URL={DATABASE_URL}")
+log.info(f"DATABASE_URL={_mask_password(DATABASE_URL)}")
 log.info(f"GEMINI_MODEL_NAME={GEMINI_MODEL_NAME}")
 log.info(f"OPENAI_MODEL_NAME={OPENAI_MODEL_NAME}")
 log.info(f"REPLY_DECISION_GEMINI_MODEL_NAME={REPLY_DECISION_GEMINI_MODEL_NAME}")
