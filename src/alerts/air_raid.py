@@ -30,6 +30,10 @@ TIMEOUT = 10.0
 # Обидва сервіси безкоштовні; хай бачать, хто до них ходить.
 USER_AGENT = "xxl-summarizer-bot (+https://github.com/dimochak/summarizer-bot)"
 
+# Областей в Україні 24 + Крим; відповідь із меншою кількістю регіонів —
+# збій на боці JAAM, а не «тривоги ніде немає».
+JAAM_MIN_STATES = 20
+
 # Після 429 мовчки пропускаємо опитування стільки секунд: долбити далі —
 # прямий шлях до бану IP.
 RATE_LIMIT_BACKOFF = 60
@@ -56,7 +60,12 @@ class AlertStatus:
 
 # Last-Modified останньої відповіді alerts.in.ua. Сервіс просить кешувати через
 # If-Modified-Since: на 304 він не віддає тіло, і це дешевше для обох сторін.
-_cache: dict = {"last_modified": None, "status": None, "backoff_until": 0.0}
+_cache: dict = {
+    "last_modified": None,
+    "status": None,
+    "backoff_until": 0.0,
+    "jaam_missing_logged": False,
+}
 
 # file_id уже завантажених у Telegram гіфок. Повторна відправка за file_id
 # миттєва, а завантаження файлу на 1-2 МБ — це секунди саме тоді, коли
@@ -119,13 +128,28 @@ async def fetch_jaam(client: httpx.AsyncClient) -> AlertStatus | None:
         config.log.warning(f"Air raid: JAAM без states: {response.text[:200]}")
         return None
 
+    # Обрізана чи порожня відповідь не має виглядати як «тривоги немає» —
+    # інакше бот оголосив би відбій посеред тривоги.
+    if len(states) < JAAM_MIN_STATES:
+        config.log.warning(f"Air raid: JAAM віддав лише {len(states)} регіонів, пропускаємо")
+        return None
+
     entry = states.get(config.ALERTS_JAAM_REGION)
+    if entry is None:
+        # Міста-громади («м. Київ», «м. Харків…») зʼявляються у відповіді
+        # лише під час тривоги, тож відсутній ключ означає «тривоги немає».
+        # Кажемо про це раз: якщо в назві описка, ключ не зʼявиться ніколи.
+        if not _cache["jaam_missing_logged"]:
+            _cache["jaam_missing_logged"] = True
+            config.log.info(
+                f"Air raid: ключа {config.ALERTS_JAAM_REGION!r} у JAAM зараз немає — "
+                f"вважаємо, що тривоги немає. Є: {', '.join(states)}"
+            )
+        return AlertStatus(active=False)
+    _cache["jaam_missing_logged"] = False
+
     if not isinstance(entry, dict) or not isinstance(entry.get("alertnow"), bool):
-        # Найімовірніше — описка в ALERTS_JAAM_REGION; підказуємо правильні ключі.
-        config.log.warning(
-            f"Air raid: у JAAM немає регіону {config.ALERTS_JAAM_REGION!r}. "
-            f"Є: {', '.join(states)}"
-        )
+        config.log.warning(f"Air raid: незрозумілий запис JAAM для {config.ALERTS_JAAM_REGION!r}: {entry!r}")
         return None
 
     return AlertStatus(

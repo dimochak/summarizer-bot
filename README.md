@@ -113,7 +113,7 @@ TRAITS_LLM_MODEL=gpt-5
 # Air raid alerts (off until ALERTS_CHAT_IDS is set)
 ALERTS_CHAT_IDS=            # comma-separated chat IDs
 ALERTS_SOURCE=jaam          # jaam | alerts_in_ua
-ALERTS_JAAM_REGION=Київ     # region key in JAAM: "Київ" (city), "Київська область"
+ALERTS_JAAM_REGION=м. Київ  # JAAM key: "м. Київ" (city), "Київська область"; not "Київ" (always empty)
 ALERTS_API_TOKEN=           # alerts_in_ua only
 ALERTS_REGION_UID=31        # alerts_in_ua only: 31 = Kyiv city, 14 = Kyiv oblast
 ALERTS_REGION_NAME=м. Київ  # shown in the message

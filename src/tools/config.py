@@ -52,8 +52,10 @@ REACTIONS_DIR = os.getenv(
 #                  Ліміт: мʼякий 8-10 запитів на хвилину, жорсткий 12.
 ALERTS_SOURCE = os.getenv("ALERTS_SOURCE", "jaam").strip().lower()
 ALERTS_API_TOKEN = os.getenv("ALERTS_API_TOKEN", "")
-# Ключ області в JAAM — її назва: «Київ» (місто), «Київська область».
-ALERTS_JAAM_REGION = os.getenv("ALERTS_JAAM_REGION", "Київ")
+# Ключ регіону в JAAM — його назва: «м. Київ» (місто), «Київська область».
+# Увага: у JAAM є ще ключ «Київ», але він порожній і тривог не показує ніколи.
+# «м. Київ» натомість зʼявляється у відповіді лише під час тривоги.
+ALERTS_JAAM_REGION = os.getenv("ALERTS_JAAM_REGION", "м. Київ")
 # UID регіону в alerts.in.ua: 31 — м. Київ, 14 — Київська область.
 ALERTS_REGION_UID = int(os.getenv("ALERTS_REGION_UID", "31"))
 ALERTS_REGION_NAME = os.getenv("ALERTS_REGION_NAME", "м. Київ")
