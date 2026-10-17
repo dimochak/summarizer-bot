@@ -20,6 +20,7 @@ def chat_routing(monkeypatch):
     monkeypatch.setattr(config, "REPLY_DECISION_OPENAI_MODEL_NAME", "")
     monkeypatch.setattr(config, "REPLY_DECISION_GEMINI_MODEL_NAME", "")
     monkeypatch.setattr(config, "TRAITS_MODEL_NAME", "traits-test")
+    monkeypatch.setattr(config, "VOICE_GEMINI_MODEL_NAME", "")
 
 
 def test_chat_id_selects_openai():
@@ -43,6 +44,21 @@ def test_unknown_chat_falls_back_to_openai_without_gemini_key(monkeypatch):
 def test_traits_is_always_openai(chat_id):
     """Traits історично лише на OpenAI — налаштування чату його не перемикає."""
     assert llm_mod.resolve_provider(chat_id, "traits") == "openai"
+
+
+@pytest.mark.parametrize("chat_id", [111, 222, 999, None])
+def test_voice_is_always_gemini(chat_id):
+    """Голосові розбирає Gemini навіть у чатах на OpenAI: Whisper не чує хропіння."""
+    assert llm_mod.resolve_provider(chat_id, "voice") == "gemini"
+
+
+def test_voice_model_falls_back_to_main_gemini_model():
+    assert llm_mod.resolve_model_name("gemini", "voice") == "gemini-test"
+
+
+def test_voice_uses_dedicated_model_when_set(monkeypatch):
+    monkeypatch.setattr(config, "VOICE_GEMINI_MODEL_NAME", "gemini-lite-test")
+    assert llm_mod.resolve_model_name("gemini", "voice") == "gemini-lite-test"
 
 
 def test_decision_falls_back_to_main_model_when_unset():

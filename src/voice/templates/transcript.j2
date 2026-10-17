@@ -1,0 +1,5 @@
+{{ "📹" if media == "video_note" else "🎙" }} <b>{{ user_name }}</b>:
+<blockquote expandable>{{ transcript }}</blockquote>
+{% if truncated %}
+<i>…далі ще, але мені набридло.</i>
+{% endif %}

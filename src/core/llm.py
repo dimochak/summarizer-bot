@@ -17,13 +17,16 @@ from langchain_openai import ChatOpenAI
 import src.tools.config as config
 
 Provider = Literal["openai", "gemini"]
-Purpose = Literal["chat", "decision", "summary", "traits", "agent"]
+Purpose = Literal["chat", "decision", "summary", "traits", "agent", "voice"]
 
 # Призначення, прив'язані до конкретного провайдера незалежно від налаштувань чату.
 # Traits історично працювали лише через OpenAI; перемикання на Gemini —
 # окреме продуктове рішення, а не частина уніфікації.
+# Голосові — лише Gemini: він приймає аудіо й відео з Telegram без
+# перекодування і розрізняє немовні звуки (хропіння), чого Whisper не вміє.
 _FORCED_PROVIDER: dict[str, Provider] = {
     "traits": "openai",
+    "voice": "gemini",
 }
 
 
@@ -57,6 +60,8 @@ def resolve_model_name(provider: Provider, purpose: Purpose) -> str:
         return config.REPLY_DECISION_GEMINI_MODEL_NAME or config.GEMINI_MODEL_NAME
     if purpose == "agent":
         return config.AGENT_GEMINI_MODEL_NAME or config.GEMINI_MODEL_NAME
+    if purpose == "voice":
+        return config.VOICE_GEMINI_MODEL_NAME or config.GEMINI_MODEL_NAME
     return config.GEMINI_MODEL_NAME
 
 

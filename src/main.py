@@ -10,6 +10,7 @@ from src.tools.db import close_pool, init_db
 from src.tools.handlers import (
     on_message,
     on_photo,
+    on_voice,
     cmd_chatid,
     cmd_summary_now,
     cmd_enable_summaries,
@@ -17,6 +18,12 @@ from src.tools.handlers import (
     cmd_status_summaries,
 )
 from src.tools.scheduler import schedule_daily
+
+# Голосові й кружечки мають свій хендлер. Загальний їх раніше ковтав мовчки:
+# тексту немає — on_message просто виходив. Виключаємо їх явно, а не покладаємось
+# на порядок реєстрації: хендлери однієї групи працюють за першим збігом.
+VOICE_FILTER = filters.VOICE | filters.VIDEO_NOTE
+TEXT_FILTER = ~filters.StatusUpdate.ALL & ~filters.COMMAND & ~filters.PHOTO & ~VOICE_FILTER
 
 
 async def post_init(application):
@@ -59,11 +66,8 @@ def main():
 
     app.add_error_handler(on_error)
 
-    app.add_handler(
-        MessageHandler(~filters.StatusUpdate.ALL &
-                       ~filters.COMMAND &
-                       ~filters.PHOTO, on_message)
-    )
+    app.add_handler(MessageHandler(TEXT_FILTER, on_message))
+    app.add_handler(MessageHandler(VOICE_FILTER, on_voice))
     photo_or_image_doc_filter = filters.PHOTO | filters.Document.IMAGE
     app.add_handler(MessageHandler(photo_or_image_doc_filter, on_photo))
 
