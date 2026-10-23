@@ -190,15 +190,31 @@ def test_general_context_not_fetched_when_thread_exists(monkeypatch):
     assert len(history.messages) == 1
     assert calls == []
 
-def test_should_reply_on_comment_request(monkeypatch):
-    # Reply to some user (not bot) but asking to comment
-    msg = FakeMessage("Прокоментуй це", user_id=123, message_id=2, reply_to_message_id=1)
-
-    # helpers імпортує is_bot_message у свій простір імен, тож патчити треба саме там —
-    # попередня версія тесту патчила src.tools.db і не мала жодного ефекту.
+@pytest.mark.parametrize("text", ["Прокоментуй це", "що скажеш?", "А ти що думаєш", "твій коментар?"])
+def test_comment_request_to_someone_else_is_not_a_call(monkeypatch, text):
+    """Люди кажуть «що скажеш» одне одному. Без звертання бот у чужу розмову
+    не втручається, навіть у відповідь на чуже повідомлення."""
+    # helpers імпортує is_bot_message у свій простір імен, тож патчити треба саме там.
     import src.panbot.helpers as helpers_mod
     monkeypatch.setattr(helpers_mod, "is_bot_message", lambda cid, mid: False)
 
+    msg = FakeMessage(text, user_id=123, message_id=2, reply_to_message_id=1)
+    assert should_reply(msg) is False
+
+
+def test_comment_request_with_bot_name_is_a_call(monkeypatch):
+    import src.panbot.helpers as helpers_mod
+    monkeypatch.setattr(helpers_mod, "is_bot_message", lambda cid, mid: False)
+
+    msg = FakeMessage("Ботяндра, що скажеш?", user_id=123, message_id=2, reply_to_message_id=1)
+    assert should_reply(msg) is True
+
+
+def test_reply_to_bot_is_a_call(monkeypatch):
+    import src.panbot.helpers as helpers_mod
+    monkeypatch.setattr(helpers_mod, "is_bot_message", lambda cid, mid: True)
+
+    msg = FakeMessage("ну і що", user_id=123, message_id=2, reply_to_message_id=1)
     assert should_reply(msg) is True
 
 def test_father_respect_injection(monkeypatch):
