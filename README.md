@@ -13,9 +13,9 @@ discussed during the day, each linking to the topic's first message and to its
 initiator. Tone is controlled by a toxicity level of 0–9. If the model's safety
 filter blocks the request, the bot automatically retries at a lower level, down to 0.
 
-**In-chat replies (PanBot).** Responds to direct address (`ботяндра`, `ботяндрік`,
-`пан бот`), to replies to its own messages, and to requests for a comment
-(`прокоментуй`, `що думаєш`, `що скажеш`, `твій коментар`). Whether to actually reply
+**In-chat replies (PanBot).** Responds only when explicitly called: direct address
+(`ботяндра`, `ботяндрік`, `пан бот`) or a reply to one of its own messages. Phrases
+like "що скажеш" between other people don't trigger it. Whether to actually reply
 is decided by a separate LLM classifier. Context is assembled from the reply thread
 rather than the whole chat. Daily limit: 10 requests per user.
 
