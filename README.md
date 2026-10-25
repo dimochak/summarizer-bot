@@ -116,6 +116,9 @@ REPLY_DECISION_OPENAI_MODEL_NAME=
 REPLY_DECISION_GEMINI_MODEL_NAME=
 TRAITS_LLM_MODEL=gpt-5
 
+# GIF reply when a specific person is tagged: "@username=folder" or "telegram_id=folder"
+MENTION_REACTIONS=
+
 # Air raid alerts (off until ALERTS_CHAT_IDS is set)
 ALERTS_CHAT_IDS=            # comma-separated chat IDs
 ALERTS_SOURCE=jaam          # jaam | alerts_in_ua

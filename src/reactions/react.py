@@ -13,6 +13,7 @@ from pathlib import Path
 from time import time
 
 from pydantic import BaseModel, Field
+from telegram import MessageEntity
 from telegram.constants import ParseMode
 
 import src.tools.config as config
@@ -20,7 +21,7 @@ from src.core.llm import get_structured_llm
 from src.panbot.engine.core import PanBotEngine
 from src.panbot.formatting import format_telegram_html
 from src.panbot.helpers import get_traits_block
-from src.reactions.rules import RULES, ReactionRule
+from src.reactions.rules import MENTION_RULES, RULES, ReactionRule
 from src.tools.db import (
     add_message,
     claim_reaction,
@@ -48,10 +49,57 @@ class SubjectMention(BaseModel):
     is_about: bool = Field(description="Чи справді повідомлення стосується цієї теми")
 
 
-def matching_rules(text: str) -> list[ReactionRule]:
-    if not text:
-        return []
-    return [rule for rule in RULES if rule.pattern.search(text)]
+_MENTION_TYPES = [MessageEntity.MENTION, MessageEntity.TEXT_MENTION]
+
+
+def tagged_users(message) -> tuple[set[int], set[str]]:
+    """Кого тегнули в повідомленні: (ID, юзернейми в нижньому регістрі).
+
+    @username дає лише юзернейм. Тег людини без юзернейма (вибір зі списку
+    учасників) приходить як text_mention з ID. Самотег не рахується.
+    """
+    ids: set[int] = set()
+    usernames: set[str] = set()
+    if message is None:
+        return ids, usernames
+
+    found = {}
+    for parse in ("parse_entities", "parse_caption_entities"):
+        method = getattr(message, parse, None)
+        if callable(method):
+            found.update(method(_MENTION_TYPES))
+
+    for entity, value in found.items():
+        if entity.type == MessageEntity.TEXT_MENTION and entity.user:
+            ids.add(entity.user.id)
+        elif entity.type == MessageEntity.MENTION:
+            usernames.add(value.lstrip("@").lower())
+
+    author = getattr(message, "from_user", None)
+    if author is not None:
+        ids.discard(author.id)
+        if getattr(author, "username", None):
+            usernames.discard(author.username.lower())
+    return ids, usernames
+
+
+def _rules() -> list[ReactionRule]:
+    return RULES + MENTION_RULES
+
+
+def matching_rules(text: str | None, message=None) -> list[ReactionRule]:
+    matched = []
+    tagged = None
+    for rule in _rules():
+        if rule.is_mention:
+            if tagged is None:
+                tagged = tagged_users(message)
+            ids, usernames = tagged
+            if rule.mention_user_ids & ids or rule.mention_usernames & usernames:
+                matched.append(rule)
+        elif text and rule.pattern is not None and rule.pattern.search(text):
+            matched.append(rule)
+    return matched
 
 
 def list_media(directory: Path) -> list[Path]:
@@ -133,7 +181,7 @@ async def maybe_react(message, text: str, chat_id: int) -> bool:
         return False
 
     try:
-        for rule in matching_rules(text):
+        for rule in matching_rules(text, message):
             now = int(time())
 
             if await db_call(
@@ -148,7 +196,8 @@ async def maybe_react(message, text: str, chat_id: int) -> bool:
                 )
                 continue
 
-            if not await confirm_mention(rule, text, chat_id):
+            # Тег перевіряти не треба: Telegram сам сказав, кого тегнули.
+            if rule.needs_confirmation and not await confirm_mention(rule, text, chat_id):
                 config.log.info(f"Reaction '{rule.name}': збіг регулярки, але не про тему")
                 continue
 
@@ -199,14 +248,15 @@ def log_reaction_assets() -> None:
     порожня або не той шлях» — найімовірніша поломка. Краще бачити це в
     логах одразу, ніж здогадуватись.
     """
-    for rule in RULES:
+    for rule in _rules():
         directory = rule.images_dir
         if not directory.is_dir():
             config.log.warning(f"Reaction '{rule.name}': теки {directory} немає — реакція вимкнена")
             continue
         count = len(list_media(directory))
         level = config.log.info if count else config.log.warning
-        level(f"Reaction '{rule.name}': {count} картинок у {directory}")
+        kind = " (тег)" if rule.is_mention else ""
+        level(f"Reaction '{rule.name}'{kind}: {count} картинок у {directory}")
 
 
 def schedule_reaction(context, message, text: str | None, chat_id: int) -> None:
@@ -217,7 +267,7 @@ def schedule_reaction(context, message, text: str | None, chat_id: int) -> None:
     Регулярку перевіряємо тут же: фонову задачу на кожне повідомлення
     створювати нема сенсу.
     """
-    if not text or chat_id not in config.PANBOT_CHAT_IDS or not matching_rules(text):
+    if not text or chat_id not in config.PANBOT_CHAT_IDS or not matching_rules(text, message):
         return
 
     coroutine = maybe_react(message, text, chat_id)
