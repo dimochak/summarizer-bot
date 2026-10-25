@@ -159,7 +159,7 @@ def flow(monkeypatch, tmp_path):
 def caption_rule(monkeypatch):
     """Правило з увімкненим підписом — Кличко його свідомо не має."""
     rule = dataclasses.replace(KLITSCHKO, generate_caption=True)
-    monkeypatch.setattr(react_mod, "matching_rules", lambda text: [rule])
+    monkeypatch.setattr(react_mod, "matching_rules", lambda text, message=None: [rule])
     return rule
 
 
@@ -332,3 +332,112 @@ def test_startup_log_reports_missing_empty_and_filled(tmp_path, monkeypatch):
     (folder / "b.mp4").write_bytes(b"x")
     react_mod.log_reaction_assets()
     assert messages[-1] == ("info", f"Reaction 'klitschko': 2 картинок у {folder}")
+
+
+# --- тег людини ---
+
+from telegram import Chat as TgChat, Message as TgMessage, MessageEntity, User as TgUser
+
+TAGGED_ID = 777000111
+FRIEND = rules_mod.ReactionRule(
+    name="friend", cooldown_seconds=3600,
+    mention_user_ids=frozenset({TAGGED_ID}), mention_usernames=frozenset({"fake_friend"}),
+)
+
+
+def tg_message(text, entities=(), author=TgUser(1, "Петро", False, username="petro_fake"),
+               caption=False):
+    kwargs = {"caption": text, "caption_entities": tuple(entities)} if caption else \
+             {"text": text, "entities": tuple(entities)}
+    return TgMessage(message_id=7, date=datetime.now(timezone.utc),
+                     chat=TgChat(CHAT, TgChat.SUPERGROUP), from_user=author, **kwargs)
+
+
+@pytest.fixture
+def friend_rule(monkeypatch):
+    monkeypatch.setattr(react_mod, "MENTION_RULES", [FRIEND])
+    return FRIEND
+
+
+def test_username_tag_matches(friend_rule):
+    text = "@Fake_Friend глянь"
+    msg = tg_message(text, [MessageEntity(MessageEntity.MENTION, 0, 12)])
+    assert react_mod.matching_rules(text, msg) == [FRIEND]
+
+
+def test_tag_without_username_matches_by_id(friend_rule):
+    """Людина без юзернейма: тег через вибір зі списку — text_mention з ID."""
+    text = "Оля, глянь"
+    entity = MessageEntity(MessageEntity.TEXT_MENTION, 0, 3, user=TgUser(TAGGED_ID, "Оля", False))
+    assert react_mod.matching_rules(text, tg_message(text, [entity])) == [FRIEND]
+
+
+def test_tag_in_photo_caption_matches(friend_rule):
+    text = "@fake_friend це ти"
+    msg = tg_message(text, [MessageEntity(MessageEntity.MENTION, 0, 12)], caption=True)
+    assert react_mod.matching_rules(text, msg) == [FRIEND]
+
+
+@pytest.mark.parametrize("text", [
+    "fake_friend без собачки",        # просто текст, тегу немає
+    "пишу тобі на email fake_friend@example.com",
+])
+def test_plain_text_is_not_a_tag(friend_rule, text):
+    assert react_mod.matching_rules(text, tg_message(text)) == []
+
+
+def test_other_person_tag_ignored(friend_rule):
+    text = "@someone_else привіт"
+    msg = tg_message(text, [MessageEntity(MessageEntity.MENTION, 0, 13)])
+    assert react_mod.matching_rules(text, msg) == []
+
+
+def test_self_tag_ignored(friend_rule):
+    me = TgUser(TAGGED_ID, "Оля", False, username="fake_friend")
+    text = "@fake_friend це я"
+    msg = tg_message(text, [MessageEntity(MessageEntity.MENTION, 0, 12)], author=me)
+    assert react_mod.matching_rules(text, msg) == []
+
+
+async def test_tag_reaction_skips_the_model(flow, friend_rule, monkeypatch):
+    """Telegram сам каже, кого тегнули, — модель для перевірки не потрібна."""
+    text = "@fake_friend дивись"
+    msg = tg_message(text, [MessageEntity(MessageEntity.MENTION, 0, 12)])
+    sent = []
+
+    async def capture(message, image, caption):
+        sent.append(image)
+        return type("Sent", (), {"message_id": 1, "date": datetime.now(timezone.utc)})()
+
+    monkeypatch.setattr(react_mod, "_send", capture)
+    assert await react_mod.maybe_react(msg, text, CHAT) is True
+    assert "confirm_mention" not in flow["calls"]
+    assert "claim_reaction" in flow["calls"], "кулдаун діє і для тегів"
+    assert len(sent) == 1
+
+
+# --- розбір MENTION_REACTIONS ---
+
+def test_parse_mention_reactions_groups_keys_by_folder():
+    rules = rules_mod.parse_mention_reactions(
+        f"@Fake_Friend=friend, {TAGGED_ID}=friend, 42=other"
+    )
+    by_name = {r.name: r for r in rules}
+    assert by_name["friend"].mention_usernames == {"fake_friend"}
+    assert by_name["friend"].mention_user_ids == {TAGGED_ID}
+    assert by_name["other"].mention_user_ids == {42}
+    assert all(r.cooldown_seconds == 3600 and not r.needs_confirmation for r in rules)
+
+
+@pytest.mark.parametrize("raw", ["", None, "  ,  "])
+def test_parse_empty(raw):
+    assert rules_mod.parse_mention_reactions(raw) == []
+
+
+def test_parse_skips_bad_entries_without_leaking_them(monkeypatch):
+    warnings = []
+    monkeypatch.setattr(config, "log", type("L", (), {"warning": staticmethod(warnings.append)}))
+    rules = rules_mod.parse_mention_reactions("@fake_friend, 123=../etc, 42=ok")
+    assert [r.name for r in rules] == ["ok"]
+    assert len(warnings) == 2
+    assert not any("fake_friend" in w or "123" in w for w in warnings), "у лог — лише номер запису"
