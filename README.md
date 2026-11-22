@@ -28,6 +28,11 @@ reactions they leave, and reacting to your own post doesn't count. The bot must 
 **admin** in the chat, otherwise Telegram doesn't send it reactions; it warns about
 that in the log on startup. Only reactions made after the feature went live are counted.
 
+**Save to private chat.** Reply `save` to a picture, GIF or video in the chat and the
+bot sends a copy to your private chat with it. Telegram doesn't let bots write first,
+so you need to press Start in the bot's private chat once; if you haven't, the bot
+replies with a one-tap link. Success is shown as a 👍 reaction, not a chat message.
+
 **Duplicate image detection.** If a picture was already posted in this chat, the bot
 points that out with a link to the original.
 
@@ -206,6 +211,7 @@ src/
   reactions/           # GIF replies to mentions of chosen subjects
   alerts/              # air raid alert GIFs
   top_posts/           # posts and reactions for the digest's top by reactions
+  save/                # "save" reply -> copy of the picture in your private chat
   tools/               # config, database, handlers, scheduler
 ```
 

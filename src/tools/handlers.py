@@ -35,6 +35,7 @@ from src.panbot.helpers import (
 from src.panbot.formatting import format_telegram_html
 from src.panbot.exceptions import SarcasmLimitExceeded
 from src.reactions.react import schedule_reaction
+from src.save.handler import SAVE_PATTERN
 from src.voice.reply import schedule_voice
 from src.summarizer.summarizer import summarize_day
 from src.tools.utils import utc_ts, message_link
@@ -284,6 +285,12 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Реакція-картинка на згадку теми (наприклад, Кличка) — у фоні.
     schedule_reaction(context, msg, text, chat.id)
+
+    # «save» у відповідь на картинку обробляє окремий хендлер. Якщо картинку
+    # надіслав сам бот, це ще й «відповідь боту» — без цієї перевірки бот
+    # почав би на «save» балакати.
+    if msg.reply_to_message and SAVE_PATTERN.match(str(text)):
+        return
 
     # Check if PanBot should reply to this message
     if chat.id in config.PANBOT_CHAT_IDS:
