@@ -35,9 +35,8 @@ that in the log on startup. Only reactions made after the feature went live are 
 bot sends a copy to your private chat with it. Telegram doesn't let bots write first,
 so you need to press Start in the bot's private chat once; if you haven't, the bot
 replies with a one-tap link. Success is shown as a 👍 reaction, not a chat message.
-For people listed in `SAVE_LOTTERY_USER_IDS`, `save` is a lottery: it starts at a 50%
-chance, each successful save adds 5% (up to 100%), each miss takes 3% (down to 5%) and
-gets a mocking reply showing the new chance. Posts by anonymous admins can't be saved.
+For people listed in `SAVE_LOTTERY_USER_IDS`, `save` works only 46% of the time; a miss
+gets a mocking reply that tells them so. Posts by anonymous admins can't be saved.
 
 **Duplicate image detection.** If a picture was already posted in this chat, the bot
 points that out with a link to the original.
@@ -130,7 +129,7 @@ TRAITS_LLM_MODEL=gpt-5
 # GIF reply when a specific person is tagged: "@username=folder" or "telegram_id=folder"
 MENTION_REACTIONS=
 
-# "save" is a lottery for these user IDs: starts at 50%, +5% per win, -3% per miss
+# "save" works only 46% of the time for these user IDs
 SAVE_LOTTERY_USER_IDS=
 
 # Air raid alerts (off until ALERTS_CHAT_IDS is set)

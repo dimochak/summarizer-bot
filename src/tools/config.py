@@ -123,8 +123,8 @@ if _voice_env:
     VOICE_CHAT_IDS = {int(x.strip()) for x in _voice_env.split(",") if x.strip()}
 
 
-# Люди, для яких «save» — лотерея: картинка надсилається з імовірністю
-# 50% + 5% за кожне попереднє вдале збереження. ID — лише в секреті на Fly.
+# Люди, для яких «save» спрацьовує лише з фіксованою імовірністю (46%).
+# ID — лише в секреті на Fly.
 _save_lottery_env = os.getenv("SAVE_LOTTERY_USER_IDS")
 SAVE_LOTTERY_USER_IDS = set()
 if _save_lottery_env:

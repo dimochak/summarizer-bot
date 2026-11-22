@@ -16,7 +16,6 @@ from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes, filters
 
 import src.tools.config as config
-from src.tools.db import adjust_save_lottery_chance, db_call, get_save_lottery_chance
 
 # «save», «Save!», « SAVE. » — лише саме слово, щоб не ловити «save me» в розмові.
 SAVE_PATTERN = re.compile(r"^\s*save\s*[!.]*\s*$", re.IGNORECASE)
@@ -31,29 +30,19 @@ START_PAYLOAD = "save"
 # повідомлення анонімних адмінів. Їх зберігати не можна.
 BLOCKED_AUTHOR_IDS = {1087968824}
 
-# Лотерея для людей із SAVE_LOTTERY_USER_IDS, у відсотках.
-LOTTERY_START = 50
-LOTTERY_WIN_STEP = 5
-LOTTERY_LOSE_STEP = 3
-# Не нуль: інакше після серії програшів людина не виграла б уже ніколи.
-LOTTERY_MIN = 5
-LOTTERY_MAX = 100
+# Для людей із SAVE_LOTTERY_USER_IDS save спрацьовує лише з цією імовірністю.
+# Статична: ні виграш, ні програш її не змінюють.
+LOTTERY_CHANCE = 46
 
 LOTTERY_LOSE_PHRASES = [
-    "Ха! Не цього разу 🎲 Ти в особливому списку, де save — це лотерея. І мінус 3% тобі: тепер шанс {chance}%.",
-    "Барабан крутиться… сектор «Пусто»! Картинка лишається в чаті, а ти — з носом. Шанс упав до {chance}%.",
-    "Казино каже «ні» 🎰 Для обраних save спрацьовує не завжди, і тобі не випало. Тепер у тебе {chance}%.",
-    "Мимо! Ти в моєму списку щасливчиків, яким щастить через раз. Кожен промах коштує 3% — зараз {chance}%.",
-    "Не поїхала картинка 🫠 Особливий режим: успіх {chance}%. Перемога піднімає шанс, програш — опускає.",
-    "Лузер-мод активовано 🫵 Save для тебе тепер працює з імовірністю {chance}%. Ще одна спроба?",
-    "Пффф, ні. Ти ж знаєш, що ти в списку: шанс {chance}%, і він щойно став меншим. Удача любить наполегливих. Або ні.",
+    "Ха! Не цього разу 🎲 Ти в особливому списку: save для тебе спрацьовує з імовірністю {chance}%. Пробуй ще.",
+    "Барабан крутиться… сектор «Пусто»! Картинка лишається в чаті, а ти — з носом. Твій шанс — {chance}%, і так буде завжди.",
+    "Казино каже «ні» 🎰 Для обраних save — лотерея з шансом {chance}%, і тобі не випало.",
+    "Мимо! Ти в моєму списку щасливчиків, яким щастить у {chance}% випадків. Кидай кубик ще.",
+    "Не поїхала картинка 🫠 Особливий режим: успіх {chance}%. Не більше, не менше, назавжди.",
+    "Лузер-мод активовано 🫵 Save для тебе працює з імовірністю {chance}%. Ще одна спроба?",
+    "Пффф, ні. Ти ж знаєш, що ти в списку: шанс {chance}%. Удача любить наполегливих. Або ні.",
 ]
-
-
-async def _adjust_chance(user_id: int, delta: int) -> int:
-    return await db_call(
-        adjust_save_lottery_chance, user_id, delta, LOTTERY_START, LOTTERY_MIN, LOTTERY_MAX
-    )
 
 
 def _roll() -> float:
@@ -88,14 +77,10 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         config.log.info(f"Save: пост анонімного адміна в чаті {chat.id} — не зберігаємо")
         return
 
-    in_lottery = user.id in config.SAVE_LOTTERY_USER_IDS
-    if in_lottery:
-        chance = await db_call(get_save_lottery_chance, user.id, LOTTERY_START)
-        if _roll() * 100 >= chance:
-            new_chance = await _adjust_chance(user.id, -LOTTERY_LOSE_STEP)
-            config.log.info(f"Save: лотерея — програш у чаті {chat.id} ({chance}% -> {new_chance}%)")
-            await msg.reply_text(random.choice(LOTTERY_LOSE_PHRASES).format(chance=new_chance))
-            return
+    if user.id in config.SAVE_LOTTERY_USER_IDS and _roll() * 100 >= LOTTERY_CHANCE:
+        config.log.info(f"Save: лотерея — програш у чаті {chat.id} (шанс {LOTTERY_CHANCE}%)")
+        await msg.reply_text(random.choice(LOTTERY_LOSE_PHRASES).format(chance=LOTTERY_CHANCE))
+        return
 
     try:
         await context.bot.copy_message(
@@ -118,10 +103,6 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     config.log.info(f"Save: повідомлення {target.message_id} з чату {chat.id} надіслано в особисті")
-    if in_lottery:
-        # Рахуємо лише справжню доставку: Start не натиснутий чи заборона
-        # копіювання шансу не піднімають.
-        await _adjust_chance(user.id, LOTTERY_WIN_STEP)
     await _acknowledge(msg)
 
 

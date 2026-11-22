@@ -252,25 +252,3 @@ def test_top_posts_counts_people_not_emojis_and_skips_self(live_db):
         assert [(r["message_id"], r["reactors"]) for r in top] == [(2, 2), (1, 1)]
     finally:
         wipe()
-
-
-def test_save_lottery_chance_moves_within_bounds(live_db):
-    from src.tools.db import adjust_save_lottery_chance as adjust, get_save_lottery_chance as get
-
-    user = 424242
-
-    def wipe():
-        with live_db() as conn:
-            conn.cursor().execute("DELETE FROM save_lottery WHERE user_id = %s", (user,))
-            conn.commit()
-
-    wipe()
-    try:
-        assert get(user, 50) == 50
-        assert adjust(user, -3, 50, 5, 100) == 47     # перший запис — від стартових 50
-        assert adjust(user, 5, 50, 5, 100) == 52
-        assert get(user, 50) == 52
-        assert adjust(user, -100, 50, 5, 100) == 5    # нижня межа
-        assert adjust(user, 500, 50, 5, 100) == 100   # верхня межа
-    finally:
-        wipe()

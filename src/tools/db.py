@@ -93,13 +93,6 @@ CREATE TABLE IF NOT EXISTS message_reactions (
     PRIMARY KEY (chat_id, message_id, actor_id, reaction)
 );
 
--- Поточний шанс людини з лотереї «save», у відсотках: перемога його
--- підвищує, програш — знижує.
-CREATE TABLE IF NOT EXISTS save_lottery (
-    user_id BIGINT PRIMARY KEY,
-    chance_pct INTEGER NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS air_alert_state (
     region TEXT PRIMARY KEY,
     active BOOLEAN NOT NULL,
@@ -476,34 +469,6 @@ def get_top_posts(chat_id: int, start_ts_utc: int, end_ts_utc: int, limit: int) 
             (chat_id, start_ts_utc, end_ts_utc, limit),
         )
         return cur.fetchall()
-
-
-def get_save_lottery_chance(user_id: int, default: int) -> int:
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT chance_pct FROM save_lottery WHERE user_id=%s", (user_id,))
-        row = cur.fetchone()
-        return row["chance_pct"] if row else default
-
-
-def adjust_save_lottery_chance(
-    user_id: int, delta: int, start: int, lowest: int, highest: int
-) -> int:
-    """Атомарно зсуває шанс на delta в межах [lowest, highest]; повертає новий.
-
-    Перший запис людини рахується від start — шансу за замовчуванням.
-    """
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO save_lottery (user_id, chance_pct)
-               VALUES (%(user)s, LEAST(%(hi)s, GREATEST(%(lo)s, %(start)s + %(delta)s)))
-               ON CONFLICT (user_id) DO UPDATE SET chance_pct =
-                   LEAST(%(hi)s, GREATEST(%(lo)s, save_lottery.chance_pct + %(delta)s))
-               RETURNING chance_pct""",
-            {"user": user_id, "delta": delta, "start": start, "lo": lowest, "hi": highest},
-        )
-        chance = cur.fetchone()["chance_pct"]
-        conn.commit()
-        return chance
 
 
 def get_enabled_chat_ids() -> list[int]:

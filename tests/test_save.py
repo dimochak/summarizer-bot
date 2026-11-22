@@ -160,74 +160,41 @@ async def test_save_reply_does_not_reach_panbot(monkeypatch, text, asked):
     assert bool(calls) is asked
 
 
-# --- лотерея для людей зі списку ---
+# --- лотерея для людей зі списку: статичні 46% ---
 
 @pytest.fixture
 def lottery(monkeypatch):
-    """Петро в лотереї; БД — словник шансів з тими ж межами, що й SQL."""
-    state = {"chance": {}, "roll": 0.0}
+    state = {"roll": 0.0}
     monkeypatch.setattr(config, "SAVE_LOTTERY_USER_IDS", {PETRO.id})
-
-    async def fake_db_call(func, user_id, *args):
-        if func.__name__ == "get_save_lottery_chance":
-            return state["chance"].get(user_id, args[0])
-        if func.__name__ == "adjust_save_lottery_chance":
-            delta, start, lo, hi = args
-            current = state["chance"].get(user_id, start)
-            state["chance"][user_id] = min(hi, max(lo, current + delta))
-            return state["chance"][user_id]
-        raise AssertionError(func.__name__)
-
-    monkeypatch.setattr(save_mod, "db_call", fake_db_call)
     monkeypatch.setattr(save_mod, "_roll", lambda: state["roll"])
     return state
 
 
-async def test_lottery_lose_lowers_chance_by_3_and_mocks(lottery):
-    lottery["roll"] = 0.6          # шанс 50% — програш
+@pytest.mark.parametrize("roll, delivered", [(0.0, True), (0.459, True), (0.46, False), (0.99, False)])
+async def test_lottery_is_static_46_percent(lottery, roll, delivered):
+    lottery["roll"] = roll
     msg, bot = FakeMsg(PHOTO), FakeBot()
     await run(msg, bot)
-
-    assert bot.copied == [], "картинку не надіслано"
-    assert lottery["chance"] == {PETRO.id: 47}
-    assert len(msg.replies) == 1 and "47%" in msg.replies[0], "показуємо вже знижений шанс"
-    assert msg.reactions == []
+    assert bool(bot.copied) is delivered
 
 
-async def test_lottery_win_sends_and_raises_chance_by_5(lottery):
-    lottery["roll"] = 0.1
+async def test_lottery_lose_mocks_and_tells_46_percent(lottery):
+    lottery["roll"] = 0.9
     msg, bot = FakeMsg(PHOTO), FakeBot()
     await run(msg, bot)
-    assert bot.copied and msg.reactions == ["👍"]
-    assert lottery["chance"] == {PETRO.id: 55}
-
-    lottery["roll"] = 0.52         # тепер шанс 55% — виграш
-    await run(FakeMsg(PHOTO), bot)
-    assert lottery["chance"] == {PETRO.id: 60}
+    assert bot.copied == [] and msg.reactions == []
+    assert len(msg.replies) == 1 and "46%" in msg.replies[0]
 
 
-async def test_lottery_chance_never_below_floor(lottery):
-    lottery["chance"][PETRO.id] = 6
-    lottery["roll"] = 0.99
-    for _ in range(3):
+async def test_lottery_chance_does_not_change(lottery):
+    """Ні виграші, ні програші шанс не зсувають: після серії він той самий."""
+    for roll in (0.1, 0.1, 0.9, 0.9, 0.9):
+        lottery["roll"] = roll
         await run(FakeMsg(PHOTO), FakeBot())
-    assert lottery["chance"][PETRO.id] == save_mod.LOTTERY_MIN
-
-
-async def test_lottery_chance_capped_at_100(lottery):
-    lottery["chance"][PETRO.id] = 98
-    lottery["roll"] = 0.0
-    await run(FakeMsg(PHOTO), FakeBot())
-    assert lottery["chance"][PETRO.id] == 100
-
-
-async def test_lottery_win_not_delivered_does_not_count(lottery):
-    """Start не натиснутий — картинка не дійшла, отже й шанс не росте."""
-    lottery["roll"] = 0.0
-    msg = FakeMsg(PHOTO)
-    await run(msg, FakeBot(Forbidden("bot can't initiate conversation with a user")))
-    assert lottery["chance"] == {}
-    assert "start=save" in msg.replies[0]
+    lottery["roll"] = 0.45
+    msg, bot = FakeMsg(PHOTO), FakeBot()
+    await run(msg, bot)
+    assert bot.copied, "0.45 < 46% і після будь-якої історії"
 
 
 async def test_users_outside_lottery_always_get_picture(lottery, monkeypatch):
@@ -235,14 +202,14 @@ async def test_users_outside_lottery_always_get_picture(lottery, monkeypatch):
     lottery["roll"] = 0.99
     msg, bot = FakeMsg(PHOTO), FakeBot()
     await run(msg, bot)
-    assert bot.copied and lottery["chance"] == {}
+    assert bot.copied
 
 
 async def test_save_on_text_ignored_even_in_lottery(lottery):
     lottery["roll"] = 0.99
     msg = FakeMsg(TEXT)
     await run(msg, FakeBot())
-    assert msg.replies == [] and lottery["chance"] == {}
+    assert msg.replies == []
 
 
 def test_lose_phrases_all_show_chance():
@@ -265,8 +232,8 @@ async def test_anonymous_admin_post_cannot_be_saved():
     assert bot.copied == [] and msg.replies == [] and msg.reactions == []
 
 
-async def test_anonymous_admin_post_does_not_cost_lottery_chance(lottery):
+async def test_anonymous_admin_post_ignored_for_lottery_users_too(lottery):
     lottery["roll"] = 0.99
     msg = FakeMsg(ANON_ADMIN_POST)
     await run(msg, FakeBot())
-    assert lottery["chance"] == {} and msg.replies == []
+    assert msg.replies == [], "на пост анонімного адміна — ні картинки, ні глузування"
