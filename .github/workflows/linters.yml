@@ -9,6 +9,8 @@ on:
       - "Dockerfile"
       - "pyproject.toml"
       - "uv.lock"
+      - ".python-version"
+      - ".github/workflows/**"
   pull_request:
     types: [ opened, synchronize, reopened ]
     branches:
@@ -19,6 +21,8 @@ on:
       - "Dockerfile"
       - "pyproject.toml"
       - "uv.lock"
+      - ".python-version"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 jobs:
@@ -43,6 +47,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Версію Python бере з .python-version (3.13, як у Dockerfile). Без неї uv
+      # брав найсвіжіший Python, для якого частина залежностей ще не має
+      # готових збірок (tiktoken під 3.14), — і CI падав без змін у коді.
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
