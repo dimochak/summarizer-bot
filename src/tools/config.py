@@ -123,6 +123,13 @@ if _voice_env:
     VOICE_CHAT_IDS = {int(x.strip()) for x in _voice_env.split(",") if x.strip()}
 
 
+# Люди, для яких «save» — лотерея: картинка надсилається з імовірністю
+# 50% + 5% за кожне попереднє вдале збереження. ID — лише в секреті на Fly.
+_save_lottery_env = os.getenv("SAVE_LOTTERY_USER_IDS")
+SAVE_LOTTERY_USER_IDS = set()
+if _save_lottery_env:
+    SAVE_LOTTERY_USER_IDS = {int(x.strip()) for x in _save_lottery_env.split(",") if x.strip()}
+
 # Чати, налаштовані на AI-підсумки (мають конкретного провайдера).
 ALLOWED_CHAT_IDS = GEMINI_CHAT_IDS | OPENAI_CHAT_IDS
 
@@ -236,6 +243,8 @@ log.info(f"ALERTS_JAAM_REGION={ALERTS_JAAM_REGION}")
 log.info(f"ALERTS_REGION_UID={ALERTS_REGION_UID} ({ALERTS_REGION_NAME})")
 log.info(f"ALERTS_POLL_SECONDS={ALERTS_POLL_SECONDS}")
 log.info(f"ALERTS_CHAT_IDS={ALERTS_CHAT_IDS}")
+# Самі ID не друкуємо — лише скільки людей у лотереї.
+log.info(f"SAVE_LOTTERY_USER_IDS: {len(SAVE_LOTTERY_USER_IDS)} людей")
 log.info(f"MESSAGES_PER_USER={MESSAGES_PER_USER}")
 log.info(f"VOICE_CHAT_IDS={VOICE_CHAT_IDS}")
 log.info(f"VOICE_GEMINI_MODEL_NAME={VOICE_GEMINI_MODEL_NAME}")

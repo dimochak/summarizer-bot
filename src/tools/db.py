@@ -93,6 +93,12 @@ CREATE TABLE IF NOT EXISTS message_reactions (
     PRIMARY KEY (chat_id, message_id, actor_id, reaction)
 );
 
+-- Скільки разів людина з лотереї «save» виграла: від цього росте її шанс.
+CREATE TABLE IF NOT EXISTS save_lottery (
+    user_id BIGINT PRIMARY KEY,
+    wins INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS air_alert_state (
     region TEXT PRIMARY KEY,
     active BOOLEAN NOT NULL,
@@ -469,6 +475,27 @@ def get_top_posts(chat_id: int, start_ts_utc: int, end_ts_utc: int, limit: int) 
             (chat_id, start_ts_utc, end_ts_utc, limit),
         )
         return cur.fetchall()
+
+
+def get_save_lottery_wins(user_id: int) -> int:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT wins FROM save_lottery WHERE user_id=%s", (user_id,))
+        row = cur.fetchone()
+        return row["wins"] if row else 0
+
+
+def record_save_lottery_win(user_id: int) -> int:
+    """Атомарно +1 перемога; повертає нову кількість."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO save_lottery (user_id, wins) VALUES (%s, 1)
+               ON CONFLICT (user_id) DO UPDATE SET wins = save_lottery.wins + 1
+               RETURNING wins""",
+            (user_id,),
+        )
+        wins = cur.fetchone()["wins"]
+        conn.commit()
+        return wins
 
 
 def get_enabled_chat_ids() -> list[int]:

@@ -7,6 +7,7 @@ Telegram не дозволяє боту писати першим: людина 
 Пересилаємо через copy_message: Telegram сам копіює медіа з підписом, без
 повторного завантаження, і без позначки «переслано від».
 """
+import random
 import re
 
 from telegram import Update
@@ -15,6 +16,7 @@ from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes, filters
 
 import src.tools.config as config
+from src.tools.db import db_call, get_save_lottery_wins, record_save_lottery_win
 
 # «save», «Save!», « SAVE. » — лише саме слово, щоб не ловити «save me» в розмові.
 SAVE_PATTERN = re.compile(r"^\s*save\s*[!.]*\s*$", re.IGNORECASE)
@@ -24,6 +26,29 @@ SAVE_FILTER = filters.REPLY & filters.TEXT & filters.Regex(SAVE_PATTERN)
 _MEDIA = ("photo", "animation", "video", "document", "sticker", "video_note")
 
 START_PAYLOAD = "save"
+
+# Лотерея для людей із SAVE_LOTTERY_USER_IDS.
+LOTTERY_BASE_CHANCE = 0.50
+LOTTERY_STEP = 0.05
+
+LOTTERY_LOSE_PHRASES = [
+    "Ха! Не цього разу 🎲 Ти в особливому списку, де save — це лотерея. Шанс зараз {chance}%, пробуй ще.",
+    "Барабан крутиться… сектор «Пусто»! Картинка лишається в чаті, а ти — з носом. Твій шанс {chance}%.",
+    "Казино каже «ні» 🎰 Для обраних save спрацьовує не завжди, і тобі сьогодні не випало. Шанс {chance}%.",
+    "Мимо! Ти в моєму списку щасливчиків, яким щастить через раз. Зараз {chance}%, кидай кубик ще.",
+    "Не поїхала картинка 🫠 Особливий режим: успіх {chance}%. Кожна перемога піднімає шанс — тож старайся.",
+    "Лузер-мод активовано 🫵 Save для тебе працює з імовірністю {chance}%. Ще одна спроба?",
+    "Пффф, ні. Ти ж знаєш, що ти в списку: шанс {chance}%. Удача любить наполегливих. Або ні.",
+]
+
+
+def lottery_chance(wins: int) -> float:
+    """50%, і +5% за кожне вдале збереження, але не більше 100%."""
+    return min(1.0, LOTTERY_BASE_CHANCE + LOTTERY_STEP * wins)
+
+
+def _roll() -> float:
+    return random.random()
 
 
 def has_media(message) -> bool:
@@ -49,6 +74,16 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if target is None or not has_media(target):
         return
 
+    in_lottery = user.id in config.SAVE_LOTTERY_USER_IDS
+    if in_lottery:
+        chance = lottery_chance(await db_call(get_save_lottery_wins, user.id))
+        if _roll() >= chance:
+            config.log.info(f"Save: лотерея — програш у чаті {chat.id} (шанс {chance:.0%})")
+            await msg.reply_text(
+                random.choice(LOTTERY_LOSE_PHRASES).format(chance=round(chance * 100))
+            )
+            return
+
     try:
         await context.bot.copy_message(
             chat_id=user.id, from_chat_id=chat.id, message_id=target.message_id
@@ -70,6 +105,10 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     config.log.info(f"Save: повідомлення {target.message_id} з чату {chat.id} надіслано в особисті")
+    if in_lottery:
+        # Рахуємо лише справжню доставку: Start не натиснутий чи заборона
+        # копіювання шансу не піднімають.
+        await db_call(record_save_lottery_win, user.id)
     await _acknowledge(msg)
 
 

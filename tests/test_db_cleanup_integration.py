@@ -252,3 +252,23 @@ def test_top_posts_counts_people_not_emojis_and_skips_self(live_db):
         assert [(r["message_id"], r["reactors"]) for r in top] == [(2, 2), (1, 1)]
     finally:
         wipe()
+
+
+def test_save_lottery_wins_accumulate(live_db):
+    from src.tools.db import get_save_lottery_wins, record_save_lottery_win
+
+    user = 424242
+
+    def wipe():
+        with live_db() as conn:
+            conn.cursor().execute("DELETE FROM save_lottery WHERE user_id = %s", (user,))
+            conn.commit()
+
+    wipe()
+    try:
+        assert get_save_lottery_wins(user) == 0
+        assert record_save_lottery_win(user) == 1
+        assert record_save_lottery_win(user) == 2
+        assert get_save_lottery_wins(user) == 2
+    finally:
+        wipe()
