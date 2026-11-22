@@ -5,6 +5,7 @@
 витрачатись лише на підтверджену тему.
 """
 import dataclasses
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -14,8 +15,33 @@ import src.reactions.rules as rules_mod
 import src.tools.config as config
 
 CHAT = -100500
-KLITSCHKO = next(r for r in rules_mod.RULES if r.name == "klitschko")
-TRUMP = next(r for r in rules_mod.RULES if r.name == "trump")
+# На проді тем зараз немає (RULES порожній), тож механізм перевіряємо на
+# тестових правилах — тих самих, що колись були в rules.py.
+KLITSCHKO = rules_mod.ReactionRule(
+    name="klitschko",
+    pattern=re.compile(r"кличк|klitschk|klychk", re.IGNORECASE),
+    subject="Віталій Кличко — мер Києва, колишній боксер",
+    exclusions="Слово «кличка» у значенні прізвиська тварини чи людини — НЕ рахується.",
+    cooldown_seconds=3600,
+)
+TRUMP = rules_mod.ReactionRule(
+    name="trump",
+    pattern=re.compile(r"трамп(?!л[іи]н)|\btrump\b", re.IGNORECASE),
+    subject="Дональд Трамп — президент США",
+    exclusions="Англійське «trump» у загальному значенні — НЕ рахується.",
+    cooldown_seconds=3600,
+)
+
+
+@pytest.fixture(autouse=True)
+def topic_rules(monkeypatch):
+    monkeypatch.setattr(react_mod, "RULES", [KLITSCHKO, TRUMP])
+    monkeypatch.setattr(react_mod, "MENTION_RULES", [])
+
+
+def test_no_topic_reactions_in_production():
+    """Реакції на Кличка й Трампа вимкнені свідомо."""
+    assert rules_mod.RULES == []
 
 
 # --- регулярка ---
