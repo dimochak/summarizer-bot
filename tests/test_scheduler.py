@@ -88,3 +88,59 @@ def test_schedule_daily_adds_job(monkeypatch):
     assert isinstance(traits["time"], dtime)
     # Після прибирання БД, щоб працювати по підчищеній таблиці messages
     assert traits["time"].hour > cleanup["time"].hour
+
+
+# --- щоденний пост: лише топ за реакціями ---
+
+from datetime import datetime
+
+
+class _Bot:
+    def __init__(self):
+        self.sent = []
+
+    async def get_chat(self, chat_id):
+        return type("Chat", (), {"id": chat_id})()
+
+    async def send_message(self, **kwargs):
+        self.sent.append(kwargs)
+
+
+KYIV = ZoneInfo("Europe/Kyiv")
+DAY_START = datetime(2026, 11, 22, 0, 0, tzinfo=KYIV)
+DAY_END = datetime(2026, 11, 23, 0, 0, tzinfo=KYIV)
+
+
+@pytest.mark.asyncio
+async def test_daily_post_is_only_top_by_reactions(monkeypatch):
+    windows = []
+
+    async def block(chat, start_ts, end_ts):
+        windows.append((start_ts, end_ts))
+        return "<b>🔥 Топ-1 за реакціями</b>\n1. посилання — 👍 3 — Петро"
+
+    monkeypatch.setattr(scheduler, "top_posts_block", block)
+    bot = _Bot()
+    await scheduler.send_daily_summary_to_chat(type("App", (), {"bot": bot})(), -100, DAY_START, DAY_END)
+
+    text = bot.sent[0]["text"]
+    assert text.startswith("<b>#Підсумки_дня — 22.11.2026</b>")
+    assert "🔥 Топ-1 за реакціями" in text
+    assert "/summary_now" in text, "підказка, де взяти повний підсумок"
+    assert windows == [(int(DAY_START.timestamp()), int(DAY_END.timestamp()))]
+
+
+@pytest.mark.asyncio
+async def test_daily_post_skipped_without_reactions(monkeypatch):
+    async def empty(chat, start_ts, end_ts):
+        return ""
+
+    monkeypatch.setattr(scheduler, "top_posts_block", empty)
+    bot = _Bot()
+    await scheduler.send_daily_summary_to_chat(type("App", (), {"bot": bot})(), -100, DAY_START, DAY_END)
+    assert bot.sent == []
+
+
+def test_daily_job_no_longer_generates_llm_summary():
+    """Текстовий підсумок — лише за /summary_now; щоденний джоб модель не кличе."""
+    assert not hasattr(scheduler, "summarize_day")

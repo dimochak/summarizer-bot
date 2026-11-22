@@ -8,9 +8,12 @@ the provider is configured per chat.
 
 ## Features
 
-**Daily summaries.** At 23:59 (Europe/Kyiv) it posts **#Підсумки_дня**: the topics
-discussed during the day, each linking to the topic's first message and to its
-initiator. Tone is controlled by a toxicity level of 0–9. If the model's safety
+**Daily post.** At 23:59 (Europe/Kyiv) it posts **#Підсумки_дня** with only the day's
+top posts by reactions (see below). If nobody reacted to anything, nothing is posted.
+
+**Topic summary on demand.** `/summary_now` posts the topics discussed today, each
+linking to the topic's first message and to its initiator, followed by the top posts.
+Tone is controlled by a toxicity level of 0–9 (`/summary_now 3`). If the model's safety
 filter blocks the request, the bot automatically retries at a lower level, down to 0.
 
 **In-chat replies (PanBot).** Responds only when explicitly called: direct address
@@ -22,8 +25,8 @@ rather than the whole chat. Daily limit: 10 requests per user.
 **On-demand summaries.** In chat: "підсумуй останні 100 повідомлень",
 "що було за 5 годин", "що відбулось за 30 хв".
 
-**Top posts by reactions.** The daily digest ends with the day's five most reacted-to
-posts (text, photos, videos, GIFs…) with links. A person counts once however many
+**Top posts by reactions.** The day's five most reacted-to posts (text, photos, videos,
+GIFs…) with links: the whole daily post, and the end of `/summary_now`. A person counts once however many
 reactions they leave, and reacting to your own post doesn't count. The bot must be an
 **admin** in the chat, otherwise Telegram doesn't send it reactions; it warns about
 that in the log on startup. Only reactions made after the feature went live are counted.

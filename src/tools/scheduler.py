@@ -1,11 +1,11 @@
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timezone
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, Application
 
 import src.tools.config as config
 from src.tools.db import db_call, get_enabled_chat_ids, cleanup_old_data
-from src.summarizer.summarizer import summarize_day
-from src.tools.utils import local_midnight_bounds
+from src.tools.utils import local_midnight_bounds, utc_ts
+from src.top_posts.digest import top_posts_block
 from src.traits.compose_traits import refresh_stale_user_traits
 
 
@@ -13,14 +13,34 @@ async def send_daily_summary_to_chat(app: Application,
                                      chat_id: int,
                                      start_local: datetime,
                                      end_local: datetime):
+    """Щоденний пост — лише топ постів за реакціями.
+
+    Текстовий підсумок тем від моделі тут більше не генеруємо: хто хоче
+    його, кличе /summary_now. Так щоденний пост короткий, а модель не
+    витрачається на підсумок, який читають не всі.
+    """
     try:
         chat = await app.bot.get_chat(chat_id)
     except Exception as e:
         config.log.exception("Cannot get chat %s: %s", chat_id, e)
         return
-    text = await summarize_day(chat, start_local, end_local, None, toxicity_level=9)
-    if not text:
-        text = f"<b>#Підсумки_дня — {start_local.date():%d.%m.%Y}</b>\n\nНемає повідомлень або не вдалося сформувати підсумок."
+
+    block = await top_posts_block(
+        chat,
+        utc_ts(start_local.astimezone(timezone.utc)),
+        utc_ts(end_local.astimezone(timezone.utc)),
+    )
+    if not block:
+        # Без реакцій постити нічого: «сьогодні ніхто нічого не лайкнув»
+        # щовечора — це шум.
+        config.log.info(f"Daily top: у чаті {chat_id} за день реакцій немає, пост пропущено")
+        return
+
+    text = (
+        f"<b>#Підсумки_дня — {start_local.date():%d.%m.%Y}</b>\n\n"
+        f"{block}\n\n"
+        "<i>Повний підсумок дня — /summary_now</i>"
+    )
     await app.bot.send_message(
         chat_id=chat.id,
         text=text,
