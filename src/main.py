@@ -23,6 +23,7 @@ from src.tools.handlers import (
     cmd_disable_summaries,
     cmd_status_summaries,
 )
+from src.save.handler import SAVE_FILTER, cmd_start, on_save
 from src.tools.scheduler import schedule_daily
 from src.top_posts.tracking import on_reaction, register_post, warn_if_not_admin
 
@@ -91,6 +92,11 @@ def main():
     app.add_handler(MessageHandler(VOICE_FILTER, on_voice))
     photo_or_image_doc_filter = filters.PHOTO | filters.Document.IMAGE
     app.add_handler(MessageHandler(photo_or_image_doc_filter, on_photo))
+
+    # «save» у відповідь на картинку. Окрема група: on_message теж отримує це
+    # повідомлення й пише його в історію, як будь-яке інше.
+    app.add_handler(MessageHandler(SAVE_FILTER, on_save), group=1)
+    app.add_handler(CommandHandler("start", cmd_start, filters=filters.ChatType.PRIVATE))
 
     app.add_handler(CommandHandler("chatid", cmd_chatid))
 
