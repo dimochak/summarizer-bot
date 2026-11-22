@@ -158,3 +158,82 @@ async def test_save_reply_does_not_reach_panbot(monkeypatch, text, asked):
     upd = update(text)
     await handlers_mod.on_message(upd, type("Ctx", (), {"application": None})())
     assert bool(calls) is asked
+
+
+# --- лотерея для людей зі списку: статичні 46% ---
+
+@pytest.fixture
+def lottery(monkeypatch):
+    state = {"roll": 0.0}
+    monkeypatch.setattr(config, "SAVE_LOTTERY_USER_IDS", {PETRO.id})
+    monkeypatch.setattr(save_mod, "_roll", lambda: state["roll"])
+    return state
+
+
+@pytest.mark.parametrize("roll, delivered", [(0.0, True), (0.459, True), (0.46, False), (0.99, False)])
+async def test_lottery_is_static_46_percent(lottery, roll, delivered):
+    lottery["roll"] = roll
+    msg, bot = FakeMsg(PHOTO), FakeBot()
+    await run(msg, bot)
+    assert bool(bot.copied) is delivered
+
+
+async def test_lottery_lose_mocks_and_tells_46_percent(lottery):
+    lottery["roll"] = 0.9
+    msg, bot = FakeMsg(PHOTO), FakeBot()
+    await run(msg, bot)
+    assert bot.copied == [] and msg.reactions == []
+    assert len(msg.replies) == 1 and "46%" in msg.replies[0]
+
+
+async def test_lottery_chance_does_not_change(lottery):
+    """Ні виграші, ні програші шанс не зсувають: після серії він той самий."""
+    for roll in (0.1, 0.1, 0.9, 0.9, 0.9):
+        lottery["roll"] = roll
+        await run(FakeMsg(PHOTO), FakeBot())
+    lottery["roll"] = 0.45
+    msg, bot = FakeMsg(PHOTO), FakeBot()
+    await run(msg, bot)
+    assert bot.copied, "0.45 < 46% і після будь-якої історії"
+
+
+async def test_users_outside_lottery_always_get_picture(lottery, monkeypatch):
+    monkeypatch.setattr(config, "SAVE_LOTTERY_USER_IDS", {999})
+    lottery["roll"] = 0.99
+    msg, bot = FakeMsg(PHOTO), FakeBot()
+    await run(msg, bot)
+    assert bot.copied
+
+
+async def test_save_on_text_ignored_even_in_lottery(lottery):
+    lottery["roll"] = 0.99
+    msg = FakeMsg(TEXT)
+    await run(msg, FakeBot())
+    assert msg.replies == []
+
+
+def test_lose_phrases_all_show_chance():
+    for phrase in save_mod.LOTTERY_LOSE_PHRASES:
+        assert "{chance}%" in phrase
+
+
+# --- пости анонімних адмінів ---
+
+ANON_ADMIN_POST = Message(
+    message_id=12, date=NOW, chat=CHAT,
+    from_user=User(1087968824, "Group", True, username="GroupAnonymousBot"),
+    sender_chat=CHAT, photo=(PhotoSize("fid2", "uid2", 100, 100),),
+)
+
+
+async def test_anonymous_admin_post_cannot_be_saved():
+    msg, bot = FakeMsg(ANON_ADMIN_POST), FakeBot()
+    await run(msg, bot)
+    assert bot.copied == [] and msg.replies == [] and msg.reactions == []
+
+
+async def test_anonymous_admin_post_ignored_for_lottery_users_too(lottery):
+    lottery["roll"] = 0.99
+    msg = FakeMsg(ANON_ADMIN_POST)
+    await run(msg, FakeBot())
+    assert msg.replies == [], "на пост анонімного адміна — ні картинки, ні глузування"

@@ -7,6 +7,7 @@ Telegram не дозволяє боту писати першим: людина 
 Пересилаємо через copy_message: Telegram сам копіює медіа з підписом, без
 повторного завантаження, і без позначки «переслано від».
 """
+import random
 import re
 
 from telegram import Update
@@ -24,6 +25,28 @@ SAVE_FILTER = filters.REPLY & filters.TEXT & filters.Regex(SAVE_PATTERN)
 _MEDIA = ("photo", "animation", "video", "document", "sticker", "video_note")
 
 START_PAYLOAD = "save"
+
+# Службовий акаунт Telegram «Group» (GroupAnonymousBot): від його імені йдуть
+# повідомлення анонімних адмінів. Їх зберігати не можна.
+BLOCKED_AUTHOR_IDS = {1087968824}
+
+# Для людей із SAVE_LOTTERY_USER_IDS save спрацьовує лише з цією імовірністю.
+# Статична: ні виграш, ні програш її не змінюють.
+LOTTERY_CHANCE = 46
+
+LOTTERY_LOSE_PHRASES = [
+    "Ха! Не цього разу 🎲 Ти в особливому списку: save для тебе спрацьовує з імовірністю {chance}%. Пробуй ще.",
+    "Барабан крутиться… сектор «Пусто»! Картинка лишається в чаті, а ти — з носом. Твій шанс — {chance}%, і так буде завжди.",
+    "Казино каже «ні» 🎰 Для обраних save — лотерея з шансом {chance}%, і тобі не випало.",
+    "Мимо! Ти в моєму списку щасливчиків, яким щастить у {chance}% випадків. Кидай кубик ще.",
+    "Не поїхала картинка 🫠 Особливий режим: успіх {chance}%. Не більше, не менше, назавжди.",
+    "Лузер-мод активовано 🫵 Save для тебе працює з імовірністю {chance}%. Ще одна спроба?",
+    "Пффф, ні. Ти ж знаєш, що ти в списку: шанс {chance}%. Удача любить наполегливих. Або ні.",
+]
+
+
+def _roll() -> float:
+    return random.random()
 
 
 def has_media(message) -> bool:
@@ -47,6 +70,16 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     target = msg.reply_to_message
     if target is None or not has_media(target):
+        return
+
+    author = getattr(target, "from_user", None)
+    if author is not None and author.id in BLOCKED_AUTHOR_IDS:
+        config.log.info(f"Save: пост анонімного адміна в чаті {chat.id} — не зберігаємо")
+        return
+
+    if user.id in config.SAVE_LOTTERY_USER_IDS and _roll() * 100 >= LOTTERY_CHANCE:
+        config.log.info(f"Save: лотерея — програш у чаті {chat.id} (шанс {LOTTERY_CHANCE}%)")
+        await msg.reply_text(random.choice(LOTTERY_LOSE_PHRASES).format(chance=LOTTERY_CHANCE))
         return
 
     try:
