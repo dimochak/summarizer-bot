@@ -16,7 +16,7 @@ from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes, filters
 
 import src.tools.config as config
-from src.tools.db import db_call, get_save_lottery_wins, record_save_lottery_win
+from src.tools.db import adjust_save_lottery_chance, db_call, get_save_lottery_chance
 
 # «save», «Save!», « SAVE. » — лише саме слово, щоб не ловити «save me» в розмові.
 SAVE_PATTERN = re.compile(r"^\s*save\s*[!.]*\s*$", re.IGNORECASE)
@@ -27,24 +27,33 @@ _MEDIA = ("photo", "animation", "video", "document", "sticker", "video_note")
 
 START_PAYLOAD = "save"
 
-# Лотерея для людей із SAVE_LOTTERY_USER_IDS.
-LOTTERY_BASE_CHANCE = 0.50
-LOTTERY_STEP = 0.05
+# Службовий акаунт Telegram «Group» (GroupAnonymousBot): від його імені йдуть
+# повідомлення анонімних адмінів. Їх зберігати не можна.
+BLOCKED_AUTHOR_IDS = {1087968824}
+
+# Лотерея для людей із SAVE_LOTTERY_USER_IDS, у відсотках.
+LOTTERY_START = 50
+LOTTERY_WIN_STEP = 5
+LOTTERY_LOSE_STEP = 3
+# Не нуль: інакше після серії програшів людина не виграла б уже ніколи.
+LOTTERY_MIN = 5
+LOTTERY_MAX = 100
 
 LOTTERY_LOSE_PHRASES = [
-    "Ха! Не цього разу 🎲 Ти в особливому списку, де save — це лотерея. Шанс зараз {chance}%, пробуй ще.",
-    "Барабан крутиться… сектор «Пусто»! Картинка лишається в чаті, а ти — з носом. Твій шанс {chance}%.",
-    "Казино каже «ні» 🎰 Для обраних save спрацьовує не завжди, і тобі сьогодні не випало. Шанс {chance}%.",
-    "Мимо! Ти в моєму списку щасливчиків, яким щастить через раз. Зараз {chance}%, кидай кубик ще.",
-    "Не поїхала картинка 🫠 Особливий режим: успіх {chance}%. Кожна перемога піднімає шанс — тож старайся.",
-    "Лузер-мод активовано 🫵 Save для тебе працює з імовірністю {chance}%. Ще одна спроба?",
-    "Пффф, ні. Ти ж знаєш, що ти в списку: шанс {chance}%. Удача любить наполегливих. Або ні.",
+    "Ха! Не цього разу 🎲 Ти в особливому списку, де save — це лотерея. І мінус 3% тобі: тепер шанс {chance}%.",
+    "Барабан крутиться… сектор «Пусто»! Картинка лишається в чаті, а ти — з носом. Шанс упав до {chance}%.",
+    "Казино каже «ні» 🎰 Для обраних save спрацьовує не завжди, і тобі не випало. Тепер у тебе {chance}%.",
+    "Мимо! Ти в моєму списку щасливчиків, яким щастить через раз. Кожен промах коштує 3% — зараз {chance}%.",
+    "Не поїхала картинка 🫠 Особливий режим: успіх {chance}%. Перемога піднімає шанс, програш — опускає.",
+    "Лузер-мод активовано 🫵 Save для тебе тепер працює з імовірністю {chance}%. Ще одна спроба?",
+    "Пффф, ні. Ти ж знаєш, що ти в списку: шанс {chance}%, і він щойно став меншим. Удача любить наполегливих. Або ні.",
 ]
 
 
-def lottery_chance(wins: int) -> float:
-    """50%, і +5% за кожне вдале збереження, але не більше 100%."""
-    return min(1.0, LOTTERY_BASE_CHANCE + LOTTERY_STEP * wins)
+async def _adjust_chance(user_id: int, delta: int) -> int:
+    return await db_call(
+        adjust_save_lottery_chance, user_id, delta, LOTTERY_START, LOTTERY_MIN, LOTTERY_MAX
+    )
 
 
 def _roll() -> float:
@@ -74,14 +83,18 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if target is None or not has_media(target):
         return
 
+    author = getattr(target, "from_user", None)
+    if author is not None and author.id in BLOCKED_AUTHOR_IDS:
+        config.log.info(f"Save: пост анонімного адміна в чаті {chat.id} — не зберігаємо")
+        return
+
     in_lottery = user.id in config.SAVE_LOTTERY_USER_IDS
     if in_lottery:
-        chance = lottery_chance(await db_call(get_save_lottery_wins, user.id))
-        if _roll() >= chance:
-            config.log.info(f"Save: лотерея — програш у чаті {chat.id} (шанс {chance:.0%})")
-            await msg.reply_text(
-                random.choice(LOTTERY_LOSE_PHRASES).format(chance=round(chance * 100))
-            )
+        chance = await db_call(get_save_lottery_chance, user.id, LOTTERY_START)
+        if _roll() * 100 >= chance:
+            new_chance = await _adjust_chance(user.id, -LOTTERY_LOSE_STEP)
+            config.log.info(f"Save: лотерея — програш у чаті {chat.id} ({chance}% -> {new_chance}%)")
+            await msg.reply_text(random.choice(LOTTERY_LOSE_PHRASES).format(chance=new_chance))
             return
 
     try:
@@ -108,7 +121,7 @@ async def on_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if in_lottery:
         # Рахуємо лише справжню доставку: Start не натиснутий чи заборона
         # копіювання шансу не піднімають.
-        await db_call(record_save_lottery_win, user.id)
+        await _adjust_chance(user.id, LOTTERY_WIN_STEP)
     await _acknowledge(msg)
 
 

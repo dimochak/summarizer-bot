@@ -93,10 +93,11 @@ CREATE TABLE IF NOT EXISTS message_reactions (
     PRIMARY KEY (chat_id, message_id, actor_id, reaction)
 );
 
--- Скільки разів людина з лотереї «save» виграла: від цього росте її шанс.
+-- Поточний шанс людини з лотереї «save», у відсотках: перемога його
+-- підвищує, програш — знижує.
 CREATE TABLE IF NOT EXISTS save_lottery (
     user_id BIGINT PRIMARY KEY,
-    wins INTEGER NOT NULL DEFAULT 0
+    chance_pct INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS air_alert_state (
@@ -477,25 +478,32 @@ def get_top_posts(chat_id: int, start_ts_utc: int, end_ts_utc: int, limit: int) 
         return cur.fetchall()
 
 
-def get_save_lottery_wins(user_id: int) -> int:
+def get_save_lottery_chance(user_id: int, default: int) -> int:
     with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT wins FROM save_lottery WHERE user_id=%s", (user_id,))
+        cur.execute("SELECT chance_pct FROM save_lottery WHERE user_id=%s", (user_id,))
         row = cur.fetchone()
-        return row["wins"] if row else 0
+        return row["chance_pct"] if row else default
 
 
-def record_save_lottery_win(user_id: int) -> int:
-    """Атомарно +1 перемога; повертає нову кількість."""
+def adjust_save_lottery_chance(
+    user_id: int, delta: int, start: int, lowest: int, highest: int
+) -> int:
+    """Атомарно зсуває шанс на delta в межах [lowest, highest]; повертає новий.
+
+    Перший запис людини рахується від start — шансу за замовчуванням.
+    """
     with db() as conn, conn.cursor() as cur:
         cur.execute(
-            """INSERT INTO save_lottery (user_id, wins) VALUES (%s, 1)
-               ON CONFLICT (user_id) DO UPDATE SET wins = save_lottery.wins + 1
-               RETURNING wins""",
-            (user_id,),
+            """INSERT INTO save_lottery (user_id, chance_pct)
+               VALUES (%(user)s, LEAST(%(hi)s, GREATEST(%(lo)s, %(start)s + %(delta)s)))
+               ON CONFLICT (user_id) DO UPDATE SET chance_pct =
+                   LEAST(%(hi)s, GREATEST(%(lo)s, save_lottery.chance_pct + %(delta)s))
+               RETURNING chance_pct""",
+            {"user": user_id, "delta": delta, "start": start, "lo": lowest, "hi": highest},
         )
-        wins = cur.fetchone()["wins"]
+        chance = cur.fetchone()["chance_pct"]
         conn.commit()
-        return wins
+        return chance
 
 
 def get_enabled_chat_ids() -> list[int]:
